@@ -3,7 +3,7 @@ name: Build OpenWrt IPK
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
 
 jobs:
