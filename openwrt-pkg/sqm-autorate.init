@@ -24,6 +24,8 @@ start_service() {
     
     config_get reflectors main reflectors ''
     config_get log_level main log_level 'info'
+    config_get cake_ack_filter main cake_ack_filter '0'
+    config_get cake_rtt main cake_rtt '100ms'
 
     procd_open_instance
     procd_set_param command $PROG
@@ -40,7 +42,9 @@ start_service() {
         SQMA_DOWNLOAD_DELAY_MS="$dl_delay" \
         SQMA_UPLOAD_DELAY_MS="$ul_delay" \
         SQMA_HIGH_LOAD_LEVEL="$high_load" \
-        SQMA_REFLECTORS="$reflectors"
+        SQMA_REFLECTORS="$reflectors" \
+        SQMA_CAKE_ACK_FILTER="$cake_ack_filter" \
+        SQMA_CAKE_RTT="$cake_rtt"
 
     procd_set_param respawn
     procd_set_param stdout 1

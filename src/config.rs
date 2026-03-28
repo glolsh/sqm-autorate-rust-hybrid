@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::Level;
 #[cfg(feature = "uci")]
 use log::warn;
 #[cfg(feature = "uci")]
@@ -55,10 +54,11 @@ pub struct Config {
     pub upload_min_kbits: f64,
 
     // Output section
-    pub log_level: Level,
     pub speed_hist_file: String,
     pub stats_file: String,
     pub suppress_statistics: bool,
+    pub cake_ack_filter: bool,
+    pub cake_rtt: String,
 
     // Advanced section
     pub download_delay_ms: f64,
@@ -102,11 +102,6 @@ impl Config {
             upload_min_percent: 0.0, // placeholder, computed below
             upload_min_kbits: 0.0,   // placeholder, computed below
             // Output section
-            log_level: Self::get::<Level>(
-                "SQMA_LOG_LEVEL",
-                "sqm-autorate.main.log_level",
-                Some(Level::Error),
-            )?,
             speed_hist_file: Self::get::<String>(
                 "SQMA_SPEED_HIST_FILE",
                 "sqm-autorate.main.speed_hist_file",
@@ -121,6 +116,16 @@ impl Config {
                 "SQMA_SUPPRESS_STATISTICS",
                 "sqm-autorate.main.suppress_statistics",
                 Some(false),
+            )?,
+            cake_ack_filter: Self::get::<bool>(
+                "SQMA_CAKE_ACK_FILTER",
+                "sqm-autorate.main.cake_ack_filter",
+                Some(false),
+            )?,
+            cake_rtt: Self::get::<String>(
+                "SQMA_CAKE_RTT",
+                "sqm-autorate.main.cake_rtt",
+                Some("100ms".to_string()),
             )?,
             // Advanced section
             download_delay_ms: Self::get::<f64>(
