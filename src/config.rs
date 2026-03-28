@@ -79,24 +79,24 @@ impl Config {
             // Network section
             download_base_kbits: Self::get::<f64>(
                 "SQMA_DOWNLOAD_BASE_KBITS",
-                "sqm-autorate.@network[0].download_base_kbits",
+                "sqm-autorate.main.download_base_kbits",
                 None,
             )?,
             download_interface: Self::get::<String>(
                 "SQMA_DOWNLOAD_INTERFACE",
-                "sqm-autorate.@network[0].download_interface",
+                "sqm-autorate.main.download_interface",
                 None,
             )?,
             download_min_percent: 0.0, // placeholder, computed below
             download_min_kbits: 0.0,   // placeholder, computed below
             upload_base_kbits: Self::get::<f64>(
                 "SQMA_UPLOAD_BASE_KBITS",
-                "sqm-autorate.@network[0].upload_base_kbits",
+                "sqm-autorate.main.upload_base_kbits",
                 None,
             )?,
             upload_interface: Self::get::<String>(
                 "SQMA_UPLOAD_INTERFACE",
-                "sqm-autorate.@network[0].upload_interface",
+                "sqm-autorate.main.upload_interface",
                 None,
             )?,
             upload_min_percent: 0.0, // placeholder, computed below
@@ -104,73 +104,73 @@ impl Config {
             // Output section
             log_level: Self::get::<Level>(
                 "SQMA_LOG_LEVEL",
-                "sqm-autorate.@output[0].log_level",
+                "sqm-autorate.main.log_level",
                 Some(Level::Error),
             )?,
             speed_hist_file: Self::get::<String>(
                 "SQMA_SPEED_HIST_FILE",
-                "sqm-autorate.@output[0].speed_hist_file",
+                "sqm-autorate.main.speed_hist_file",
                 Some("/tmp/sqm-speedhist.csv".parse()?),
             )?,
             stats_file: Self::get::<String>(
                 "SQMA_STATS_FILE",
-                "sqm-autorate.@output[0].stats_file",
+                "sqm-autorate.main.stats_file",
                 Some("/tmp/sqm-autorate.csv".parse()?),
             )?,
             suppress_statistics: Self::get::<bool>(
                 "SQMA_SUPPRESS_STATISTICS",
-                "sqm-autorate.@output[0].suppress_statistics",
+                "sqm-autorate.main.suppress_statistics",
                 Some(false),
             )?,
             // Advanced section
             download_delay_ms: Self::get::<f64>(
                 "SQMA_DOWNLOAD_DELAY_MS",
-                "sqm-autorate.@advanced_settings[0].download_delay_ms",
+                "sqm-autorate.main.download_delay_ms",
                 Some(15.0),
             )?,
             high_load_level: Self::get::<f64>(
                 "SQMA_HIGH_LOAD_LEVEL",
-                "sqm-autorate.@advanced_settings[0].high_load_level",
-                Some(0.8),
+                "sqm-autorate.main.high_load_level",
+                Some(0.5),
             )?,
             measurement_type: Self::get::<MeasurementType>(
                 "SQMA_MEASUREMENT_TYPE",
-                "sqm-autorate.@advanced_settings[0].measurement_type",
+                "sqm-autorate.main.measurement_type",
                 Some(MeasurementType::IcmpTimestamps),
             )?,
             min_change_interval: Self::get::<f64>(
                 "SQMA_MIN_CHANGE_INTERVAL",
-                "sqm-autorate.@advanced_settings[0].min_change_interval",
+                "sqm-autorate.main.min_change_interval",
                 Some(0.5),
             )?,
             num_reflectors: Self::get::<u8>(
                 "SQMA_NUM_REFLECTORS",
-                "sqm-autorate.@advanced_settings[0].num_reflectors",
+                "sqm-autorate.main.num_reflectors",
                 Some(5),
             )?,
             peer_reselection_time: Self::get::<u64>(
                 "SQMA_PEER_RESELECTION_TIME",
-                "sqm-autorate.@advanced_settings[0].peer_reselection_time",
+                "sqm-autorate.main.peer_reselection_time",
                 Some(15),
             )?,
             reflectors: Self::get::<String>(
                 "SQMA_REFLECTORS",
-                "sqm-autorate.@advanced_settings[0].reflectors",
-                Some("1.1.1.1 8.8.8.8".parse()?),
+                "sqm-autorate.main.reflectors",
+                Some("".parse()?),
             )?,
             speed_hist_size: Self::get::<u32>(
                 "SQMA_SPEED_HIST_SIZE",
-                "sqm-autorate.@advanced_settings[0].speed_hist_size",
+                "sqm-autorate.main.speed_hist_size",
                 Some(100),
             )?,
             tick_interval: Self::get::<f64>(
                 "SQMA_TICK_INTERVAL",
-                "sqm-autorate.@advanced_settings[0].tick_interval",
+                "sqm-autorate.main.tick_interval",
                 Some(0.5),
             )?,
             upload_delay_ms: Self::get::<f64>(
                 "SQMA_UPLOAD_DELAY_MS",
-                "sqm-autorate.@advanced_settings[0].upload_delay_ms",
+                "sqm-autorate.main.upload_delay_ms",
                 Some(15.0),
             )?,
         };
@@ -179,22 +179,34 @@ impl Config {
 
         config.download_min_percent = Self::get::<f64>(
             "SQMA_DOWNLOAD_MIN_PERCENT",
-            "sqm-autorate.@network[0].download_min_percent",
-            Some(20.0),
-        )?
-        .clamp(1.0, 80.0);
+            "sqm-autorate.main.download_min_percent",
+            Some(50.0),
+        )?;
 
         config.upload_min_percent = Self::get::<f64>(
             "SQMA_UPLOAD_MIN_PERCENT",
-            "sqm-autorate.@network[0].upload_min_percent",
-            Some(20.0),
-        )?
-        .clamp(1.0, 80.0);
+            "sqm-autorate.main.upload_min_percent",
+            Some(50.0),
+        )?;
+
+        if config.download_base_kbits == 0.0 {
+            config.download_base_kbits = 10_000_000.0;
+        }
+        if config.upload_base_kbits == 0.0 {
+            config.upload_base_kbits = 10_000_000.0;
+        }
 
         config.download_min_kbits =
             (config.download_base_kbits * config.download_min_percent / 100.0).floor();
         config.upload_min_kbits =
             (config.upload_base_kbits * config.upload_min_percent / 100.0).floor();
+
+        if config.download_min_percent == 0.0 {
+            config.download_min_kbits = 1000.0;
+        }
+        if config.upload_min_percent == 0.0 {
+            config.upload_min_kbits = 1000.0;
+        }
 
         Ok(config)
     }

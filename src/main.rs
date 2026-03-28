@@ -51,28 +51,42 @@ fn main() -> anyhow::Result<()> {
     let owd_recent = Arc::new(Mutex::new(HashMap::<IpAddr, ReflectorStats>::new()));
     let reflector_peers_lock = Arc::new(RwLock::new(Vec::<IpAddr>::new()));
     let mut reflector_pool = Vec::<IpAddr>::new();
+
+    if reflectors.is_empty() {
+        let default_reflectors = [
+            IpAddr::from_str("9.9.9.9")?,
+            IpAddr::from_str("8.238.120.14")?,
+            IpAddr::from_str("74.82.42.42")?,
+            IpAddr::from_str("194.242.2.2")?,
+            IpAddr::from_str("208.67.222.222")?,
+            IpAddr::from_str("94.140.14.14")?,
+        ];
+        reflectors.extend_from_slice(&default_reflectors);
+    }
+
     let reflector_pool_size = reflectors.len();
 
-    let default_reflectors = [
-        IpAddr::from_str("9.9.9.9")?,
-        IpAddr::from_str("8.238.120.14")?,
-        IpAddr::from_str("74.82.42.42")?,
-        IpAddr::from_str("194.242.2.2")?,
-        IpAddr::from_str("208.67.222.222")?,
-        IpAddr::from_str("94.140.14.14")?,
-    ];
-
-    match reflector_pool_size > config.num_reflectors as usize {
-        true => {
-            let mut peers = reflector_peers_lock.write().unwrap();
-            peers.extend_from_slice(&default_reflectors);
-            reflector_pool.append(reflectors.as_mut());
-        }
-        false => {
-            let mut peers = reflector_peers_lock.write().unwrap();
-            peers.extend_from_slice(&default_reflectors);
+    {
+        let mut peers = reflector_peers_lock.write().unwrap();
+        let num_to_take = std::cmp::min(config.num_reflectors as usize, reflectors.len());
+        for i in 0..num_to_take {
+            peers.push(reflectors[i]);
         }
     }
+
+    reflector_pool.append(reflectors.as_mut());
+
+    use std::io::Write;
+    println!("=== SQM Autorate Configuration ===");
+    println!("Interfaces: DL {} / UL {}", config.download_interface, config.upload_interface);
+    let dl_base_str = if config.download_base_kbits == 10_000_000.0 { "Unlimited".to_string() } else { format!("{} Kbps", config.download_base_kbits) };
+    let ul_base_str = if config.upload_base_kbits == 10_000_000.0 { "Unlimited".to_string() } else { format!("{} Kbps", config.upload_base_kbits) };
+    println!("Base Rates: DL {} / UL {}", dl_base_str, ul_base_str);
+    println!("Delay Thresholds: DL {}ms / UL {}ms", config.download_delay_ms, config.upload_delay_ms);
+    let peers_str: Vec<String> = reflector_peers_lock.read().unwrap().iter().map(|ip| ip.to_string()).collect();
+    println!("Active Reflectors: {}", peers_str.join(", "));
+    println!("==================================");
+    let _ = std::io::stdout().flush();
 
     let (baseliner_stats_sender, baseliner_stats_receiver) = channel();
     let (reselect_sender, reselect_receiver) = channel();

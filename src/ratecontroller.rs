@@ -275,9 +275,9 @@ impl Ratecontroller {
         let mut lastchg_t = Instant::now();
         let mut lastdump_t = Instant::now();
 
-        // set qdisc rates to 60% of base rate to make sure we start with sane baselines
-        self.state_dl.current_rate = self.config.download_base_kbits * 0.6;
-        self.state_ul.current_rate = self.config.upload_base_kbits * 0.6;
+        // set qdisc rates to 95% of base rate to avoid load traps
+        self.state_dl.current_rate = self.config.download_base_kbits * 0.95;
+        self.state_ul.current_rate = self.config.upload_base_kbits * 0.95;
 
         Netlink::set_qdisc_rate(
             self.state_dl.qdisc,
@@ -362,10 +362,10 @@ impl Ratecontroller {
 
                 let reflectors = self.reflectors_lock.read_anyhow()?;
                 let targets: Vec<String> = reflectors.iter().map(|ip| ip.to_string()).collect();
-                let target_str = targets.join(" ");
+                let target_str = targets.join(", ");
 
                 println!(
-                    "Target: {} | DL RTT: {:.2}ms | UL RTT: {:.2}ms | DL Limit: {} Kbps | UL Limit: {} Kbps",
+                    "Target: [{}] | DL RTT: {:.2}ms | UL RTT: {:.2}ms | DL Limit: {} Kbps | UL Limit: {} Kbps",
                     target_str,
                     self.state_dl.delta_stat,
                     self.state_ul.delta_stat,
