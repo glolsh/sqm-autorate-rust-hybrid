@@ -60,7 +60,7 @@ jobs:
           make package/sqm-autorate/compile V=s
 
           # Find the built IPK and set it as an output variable
-          IPK_FILE=$(find bin/packages/ -name "sqm-autorate_*.ipk")
+          IPK_FILE=$(find bin/packages/ -name "sqm-autorate_*.ipk" | head -n 1)
           echo "Found IPK: $IPK_FILE"
           echo "ipk_path=openwrt-sdk/$IPK_FILE" >> $GITHUB_ENV
 

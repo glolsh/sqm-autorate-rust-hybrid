@@ -14,6 +14,7 @@ define Package/sqm-autorate
   CATEGORY:=Network
   TITLE:=SQM Autorate (Rust)
   DEPENDS:=+tc +kmod-sched-cake
+  PKGARCH:=aarch64_generic
 endef
 
 define Package/sqm-autorate/description
@@ -26,6 +27,9 @@ endef
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
+	cp ./sqm-autorate-rust $(PKG_BUILD_DIR)/
+	cp ./sqm-autorate.init $(PKG_BUILD_DIR)/
+	cp ./sqm-autorate.config $(PKG_BUILD_DIR)/
 endef
 
 define Build/Compile
@@ -34,14 +38,13 @@ endef
 
 define Package/sqm-autorate/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	# The pre-compiled binary will be copied here before building the package
-	$(INSTALL_BIN) ./sqm-autorate-rust $(1)/usr/bin/sqm-autorate-rust
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/sqm-autorate-rust $(1)/usr/bin/sqm-autorate-rust
 
 	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./sqm-autorate.init $(1)/etc/init.d/sqm-autorate
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/sqm-autorate.init $(1)/etc/init.d/sqm-autorate
 
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_CONF) ./sqm-autorate.config $(1)/etc/config/sqm-autorate
+	$(INSTALL_CONF) $(PKG_BUILD_DIR)/sqm-autorate.config $(1)/etc/config/sqm-autorate
 endef
 
 $(eval $(call BuildPackage,sqm-autorate))
