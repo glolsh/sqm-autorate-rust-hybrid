@@ -4,12 +4,9 @@ use log::Level;
 use log::warn;
 #[cfg(feature = "uci")]
 use rust_uci::Uci;
-use std::fs::File;
-use std::io::BufRead;
 use std::net::IpAddr;
-use std::path::Path;
 use std::str::FromStr;
-use std::{env, io};
+use std::env;
 
 use thiserror::Error;
 
@@ -21,16 +18,6 @@ pub enum ConfigError {
     ParseError(String),
     #[error("No config value found for key: `{0}`")]
     MissingValue(String),
-    #[error("Reflector list not found at: {0}")]
-    ReflectorListNotFound(String),
-}
-
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where
-    P: AsRef<Path>,
-{
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +67,7 @@ pub struct Config {
     pub measurement_type: MeasurementType,
     pub num_reflectors: u8,
     pub peer_reselection_time: u64,
-    pub reflector_list_file: String,
+    pub reflectors: String,
     pub speed_hist_size: u32,
     pub tick_interval: f64,
     pub upload_delay_ms: f64,
@@ -166,10 +153,10 @@ impl Config {
                 "sqm-autorate.@advanced_settings[0].peer_reselection_time",
                 Some(15),
             )?,
-            reflector_list_file: Self::get::<String>(
-                "SQMA_REFLECTOR_LIST_FILE",
-                "sqm-autorate.@advanced_settings[0].reflector_list_file",
-                Some("/etc/sqm-autorate/reflectors-icmp.csv".parse()?),
+            reflectors: Self::get::<String>(
+                "SQMA_REFLECTORS",
+                "sqm-autorate.@advanced_settings[0].reflectors",
+                Some("1.1.1.1 8.8.8.8".parse()?),
             )?,
             speed_hist_size: Self::get::<u32>(
                 "SQMA_SPEED_HIST_SIZE",
@@ -264,25 +251,13 @@ impl Config {
     }
 
     pub fn load_reflectors(&self) -> Result<Vec<IpAddr>> {
-        let lines = read_lines(self.reflector_list_file.clone()).map_err(|e| {
-            ConfigError::ReflectorListNotFound(
-                self.reflector_list_file.clone() + ": " + e.to_string().as_str(),
-            )
-        })?;
-
         let mut reflectors: Vec<IpAddr> = Vec::with_capacity(50);
 
-        let mut first = true;
-
-        for line in lines {
-            if first {
-                first = false;
-                continue;
+        for ip_str in self.reflectors.split(|c| c == ' ' || c == ',') {
+            let ip_str = ip_str.trim();
+            if !ip_str.is_empty() {
+                reflectors.push(IpAddr::from_str(ip_str)?);
             }
-
-            let line = line?;
-            let columns: Vec<&str> = line.split(',').collect();
-            reflectors.push(IpAddr::from_str(columns[0])?);
         }
 
         Ok(reflectors)

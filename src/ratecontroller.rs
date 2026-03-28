@@ -360,6 +360,20 @@ impl Ratecontroller {
                 self.calculate_rate(Direction::Down)?;
                 self.calculate_rate(Direction::Up)?;
 
+                let reflectors = self.reflectors_lock.read_anyhow()?;
+                let targets: Vec<String> = reflectors.iter().map(|ip| ip.to_string()).collect();
+                let target_str = targets.join(" ");
+
+                println!(
+                    "Target: {} | DL RTT: {:.2}ms | UL RTT: {:.2}ms | DL Limit: {} Kbps | UL Limit: {} Kbps",
+                    target_str,
+                    self.state_dl.delta_stat,
+                    self.state_ul.delta_stat,
+                    self.state_dl.next_rate as u64,
+                    self.state_ul.next_rate as u64
+                );
+                let _ = std::io::stdout().flush();
+
                 if self.state_dl.next_rate != self.state_dl.current_rate
                     || self.state_ul.next_rate != self.state_ul.current_rate
                 {
