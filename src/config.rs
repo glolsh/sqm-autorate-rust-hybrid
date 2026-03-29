@@ -48,11 +48,9 @@ pub struct Config {
     pub upload_interface: String,
     pub download_base_kbits: f64,
     pub download_max_kbits: f64,
-    pub download_min_percent: f64,
     pub download_min_kbits: f64,
     pub upload_base_kbits: f64,
     pub upload_max_kbits: f64,
-    pub upload_min_percent: f64,
     pub upload_min_kbits: f64,
 
     // Output section
@@ -97,8 +95,11 @@ impl Config {
                 "sqm-autorate.main.download_max_kbits",
                 Some(0.0),
             )?,
-            download_min_percent: 0.0, // placeholder, computed below
-            download_min_kbits: 0.0,   // placeholder, computed below
+            download_min_kbits: Self::get::<f64>(
+                "SQMA_DOWNLOAD_MIN_KBITS",
+                "sqm-autorate.main.download_min_kbits",
+                Some(1000.0),
+            )?,
             upload_base_kbits: Self::get::<f64>(
                 "SQMA_UPLOAD_BASE_KBITS",
                 "sqm-autorate.main.upload_base_kbits",
@@ -114,8 +115,11 @@ impl Config {
                 "sqm-autorate.main.upload_max_kbits",
                 Some(0.0),
             )?,
-            upload_min_percent: 0.0, // placeholder, computed below
-            upload_min_kbits: 0.0,   // placeholder, computed below
+            upload_min_kbits: Self::get::<f64>(
+                "SQMA_UPLOAD_MIN_KBITS",
+                "sqm-autorate.main.upload_min_kbits",
+                Some(1000.0),
+            )?,
             // Output section
             stats_file: Self::get::<String>(
                 "SQMA_STATS_FILE",
@@ -202,35 +206,11 @@ impl Config {
 
         let mut config = config;
 
-        config.download_min_percent = Self::get::<f64>(
-            "SQMA_DOWNLOAD_MIN_PERCENT",
-            "sqm-autorate.main.download_min_percent",
-            Some(50.0),
-        )?;
-
-        config.upload_min_percent = Self::get::<f64>(
-            "SQMA_UPLOAD_MIN_PERCENT",
-            "sqm-autorate.main.upload_min_percent",
-            Some(50.0),
-        )?;
-
         if config.download_base_kbits == 0.0 {
             config.download_base_kbits = 10_000_000.0;
         }
         if config.upload_base_kbits == 0.0 {
             config.upload_base_kbits = 10_000_000.0;
-        }
-
-        config.download_min_kbits =
-            (config.download_base_kbits * config.download_min_percent / 100.0).floor();
-        config.upload_min_kbits =
-            (config.upload_base_kbits * config.upload_min_percent / 100.0).floor();
-
-        if config.download_min_percent == 0.0 {
-            config.download_min_kbits = 1000.0;
-        }
-        if config.upload_min_percent == 0.0 {
-            config.upload_min_kbits = 1000.0;
         }
 
         Ok(config)

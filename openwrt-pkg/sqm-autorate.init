@@ -18,8 +18,8 @@ start_service() {
     config_get dl_max main download_max_kbits '0'
     config_get ul_base main upload_base_kbits '750000'
     config_get ul_max main upload_max_kbits '0'
-    config_get dl_min main download_min_percent '50'
-    config_get ul_min main upload_min_percent '50'
+    config_get dl_min main download_min_kbits '375000'
+    config_get ul_min main upload_min_kbits '375000'
     config_get dl_delay main download_delay_ms '20.0'
     config_get ul_delay main upload_delay_ms '20.0'
     config_get high_load main high_load_level '0.5'
@@ -46,8 +46,8 @@ start_service() {
         SQMA_DOWNLOAD_MAX_KBITS="$dl_max" \
         SQMA_UPLOAD_BASE_KBITS="$ul_base" \
         SQMA_UPLOAD_MAX_KBITS="$ul_max" \
-        SQMA_DOWNLOAD_MIN_PERCENT="$dl_min" \
-        SQMA_UPLOAD_MIN_PERCENT="$ul_min" \
+        SQMA_DOWNLOAD_MIN_KBITS="$dl_min" \
+        SQMA_UPLOAD_MIN_KBITS="$ul_min" \
         SQMA_DOWNLOAD_DELAY_MS="$dl_delay" \
         SQMA_UPLOAD_DELAY_MS="$ul_delay" \
         SQMA_HIGH_LOAD_LEVEL="$high_load" \

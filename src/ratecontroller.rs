@@ -164,8 +164,9 @@ impl Ratecontroller {
                 } else if state.delta_stat > delay_ms {
                     state.status = "CONGESTION".to_string();
 
-                    // Multiplicative decrease based on actual throughput
-                    state.next_rate = state.utilisation * self.config.decrease_multiplier;
+                    // Protect against idle lag spikes: never calculate the drop from a base lower than 50% of the current limit
+                    let effective_baseline = state.utilisation.max(state.current_rate * 0.5);
+                    state.next_rate = effective_baseline * self.config.decrease_multiplier;
 
                     state.congestion_ceiling = state.utilisation;
                     state.cooldown_until = Some(now_t + Duration::from_secs_f64(self.config.cooldown_secs));
