@@ -218,11 +218,22 @@ impl Config {
 
     fn get<T: FromStr>(env_key: &str, uci_key: &str, default: Option<T>) -> Result<T, ConfigError> {
         match Self::get_value(env_key, uci_key) {
-            Some(val) => match val.parse::<T>() {
-                Ok(parsed_val) => Ok(parsed_val),
-                // Ran into an compilation error while trying to return the
-                // error as-is, so using my own error type to indicate something went wrong while parsing
-                Err(_) => Err(ConfigError::ParseError(env_key.to_string())),
+            Some(val) => {
+                // Special handling for booleans in OpenWrt's UCI system
+                if std::any::type_name::<T>() == "bool" {
+                    let v = val.trim().to_lowercase();
+                    if v == "1" || v == "true" || v == "on" || v == "yes" {
+                        return "true".parse::<T>().map_err(|_| ConfigError::ParseError(env_key.to_string()));
+                    } else if v == "0" || v == "false" || v == "off" || v == "no" {
+                        return "false".parse::<T>().map_err(|_| ConfigError::ParseError(env_key.to_string()));
+                    }
+                }
+                match val.parse::<T>() {
+                    Ok(parsed_val) => Ok(parsed_val),
+                    // Ran into an compilation error while trying to return the
+                    // error as-is, so using my own error type to indicate something went wrong while parsing
+                    Err(_) => Err(ConfigError::ParseError(env_key.to_string())),
+                }
             },
             None => match default {
                 Some(val) => Ok(val),

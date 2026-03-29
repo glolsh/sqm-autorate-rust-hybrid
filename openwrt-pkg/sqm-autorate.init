@@ -24,7 +24,7 @@ start_service() {
     
     config_get reflectors main reflectors ''
     config_get log_level main log_level 'info'
-    config_get cake_ack_filter main cake_ack_filter '0'
+    config_get cake_ack_filter main cake_ack_filter 'false'
     config_get cake_rtt main cake_rtt '100ms'
 
     procd_open_instance

@@ -239,9 +239,10 @@ impl Ratecontroller {
         state_dl.deltas.sort_by(|a, b| a.total_cmp(b));
         state_ul.deltas.sort_by(|a, b| a.total_cmp(b));
 
-        if state_dl.deltas.len() < 5 || state_ul.deltas.len() < 5 {
+        let required_deltas = std::cmp::min(3, reflectors.len());
+        if state_dl.deltas.len() < required_deltas || state_ul.deltas.len() < required_deltas {
             // trigger reselection
-            warn!("Not enough delta values, triggering reselection");
+            warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
             let _ = self.reselect_trigger.send(true);
         }
 
