@@ -14,7 +14,7 @@ pub struct PingerICMPEchoSender {}
 
 impl PingListener for PingerICMPEchoListener {
     // Result: RTT, down time, up time
-    fn parse_packet(&self, id: u16, reflector: IpAddr, pkt: Icmpv4Packet) -> Result<PingReply, PingError> {
+    fn parse_packet(&mut self, id: u16, reflector: IpAddr, pkt: Icmpv4Packet) -> Result<PingReply, PingError> {
         match pkt.typ {
             0 => {
                 if let Icmpv4Message::EchoReply {
@@ -65,7 +65,7 @@ impl PingListener for PingerICMPEchoListener {
 }
 
 impl PingSender for PingerICMPEchoSender {
-    fn craft_packet(&self, id: u16, seq: u16) -> Icmpv4Packet {
+    fn craft_packet(&mut self, id: u16, seq: u16, _reflector: IpAddr) -> Icmpv4Packet {
         let clock = Time::new(ClockId::Monotonic);
         let time_ms = clock.to_milliseconds();
         let payload = time_ms.to_be_bytes().to_vec();

@@ -26,7 +26,7 @@ use std::{process, thread};
 
 use crate::config::{Config, MeasurementType};
 use crate::netlink::Netlink;
-use crate::pinger::{PingListener, PingSender};
+use crate::pinger::{PingListener, PingSender, ReflectorState};
 use crate::pinger_icmp::{PingerICMPEchoListener, PingerICMPEchoSender};
 use crate::pinger_icmp_ts::{PingerICMPTimestampListener, PingerICMPTimestampSender};
 use crate::ratecontroller::{Ratecontroller, StatsDirection};
@@ -56,6 +56,7 @@ fn main() -> anyhow::Result<()> {
     let owd_recent = Arc::new(Mutex::new(HashMap::<IpAddr, ReflectorStats>::new()));
     let reflector_peers_lock = Arc::new(RwLock::new(Vec::<IpAddr>::new()));
     let mut reflector_pool = Vec::<IpAddr>::new();
+    let reflector_state = Arc::new(RwLock::new(HashMap::<IpAddr, ReflectorState>::new()));
 
     if reflectors.is_empty() {
         let default_reflectors = [
@@ -104,8 +105,12 @@ fn main() -> anyhow::Result<()> {
             Box::new(PingerICMPEchoSender {}) as Box<dyn PingSender + Send>,
         ),
         MeasurementType::IcmpTimestamps => (
-            Box::new(PingerICMPTimestampListener {}) as Box<dyn PingListener + Send>,
-            Box::new(PingerICMPTimestampSender {}) as Box<dyn PingSender + Send>,
+            Box::new(PingerICMPTimestampListener {
+                state: reflector_state.clone(),
+            }) as Box<dyn PingListener + Send>,
+            Box::new(PingerICMPTimestampSender {
+                state: reflector_state.clone(),
+            }) as Box<dyn PingSender + Send>,
         ),
         MeasurementType::Ntp | MeasurementType::TcpTimestamps => {
             todo!()

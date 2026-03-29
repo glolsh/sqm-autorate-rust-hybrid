@@ -35,6 +35,28 @@ pub struct PingReply {
     pub last_receive_time_s: Instant,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PingMode {
+    Timestamp,
+    Echo,
+}
+
+pub struct ReflectorState {
+    pub current_mode: PingMode,
+    pub consecutive_fails: u32,
+    pub last_timestamp_attempt: Instant,
+}
+
+impl Default for ReflectorState {
+    fn default() -> Self {
+        Self {
+            current_mode: PingMode::Timestamp,
+            consecutive_fails: 0,
+            last_timestamp_attempt: Instant::now(),
+        }
+    }
+}
+
 fn open_socket(type_: MeasurementType) -> io::Result<IcmpSocket4> {
     match type_ {
         MeasurementType::Icmp | MeasurementType::IcmpTimestamps => {
@@ -86,7 +108,7 @@ pub trait PingListener {
         }
     }
 
-    fn parse_packet(&self, id: u16, reflector: IpAddr, pkt: Icmpv4Packet) -> Result<PingReply, PingError>;
+    fn parse_packet(&mut self, id: u16, reflector: IpAddr, pkt: Icmpv4Packet) -> Result<PingReply, PingError>;
 }
 
 pub trait PingSender {
@@ -123,7 +145,8 @@ pub trait PingSender {
                     IpAddr::V6(_) => unimplemented!(),
                 };
 
-                socket.send_to(addr, self.craft_packet(id, seq))?;
+                let packet = self.craft_packet(id, seq, *reflector);
+                socket.send_to(addr, packet)?;
                 thread::sleep(sleep_duration);
             }
 
@@ -135,5 +158,5 @@ pub trait PingSender {
         }
     }
 
-    fn craft_packet(&self, id: u16, seq: u16) -> icmp_socket::packet::Icmpv4Packet;
+    fn craft_packet(&mut self, id: u16, seq: u16, reflector: IpAddr) -> icmp_socket::packet::Icmpv4Packet;
 }
