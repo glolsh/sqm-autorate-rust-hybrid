@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::Level;
 #[cfg(feature = "uci")]
 use log::warn;
 #[cfg(feature = "uci")]
@@ -55,10 +54,11 @@ pub struct Config {
     pub upload_min_kbits: f64,
 
     // Output section
-    pub log_level: Level,
     pub speed_hist_file: String,
     pub stats_file: String,
     pub suppress_statistics: bool,
+    pub cake_ack_filter: bool,
+    pub cake_rtt: String,
 
     // Advanced section
     pub download_delay_ms: f64,
@@ -102,11 +102,6 @@ impl Config {
             upload_min_percent: 0.0, // placeholder, computed below
             upload_min_kbits: 0.0,   // placeholder, computed below
             // Output section
-            log_level: Self::get::<Level>(
-                "SQMA_LOG_LEVEL",
-                "sqm-autorate.main.log_level",
-                Some(Level::Error),
-            )?,
             speed_hist_file: Self::get::<String>(
                 "SQMA_SPEED_HIST_FILE",
                 "sqm-autorate.main.speed_hist_file",
@@ -121,6 +116,16 @@ impl Config {
                 "SQMA_SUPPRESS_STATISTICS",
                 "sqm-autorate.main.suppress_statistics",
                 Some(false),
+            )?,
+            cake_ack_filter: Self::get::<bool>(
+                "SQMA_CAKE_ACK_FILTER",
+                "sqm-autorate.main.cake_ack_filter",
+                Some(false),
+            )?,
+            cake_rtt: Self::get::<String>(
+                "SQMA_CAKE_RTT",
+                "sqm-autorate.main.cake_rtt",
+                Some("100ms".to_string()),
             )?,
             // Advanced section
             download_delay_ms: Self::get::<f64>(
@@ -213,11 +218,22 @@ impl Config {
 
     fn get<T: FromStr>(env_key: &str, uci_key: &str, default: Option<T>) -> Result<T, ConfigError> {
         match Self::get_value(env_key, uci_key) {
-            Some(val) => match val.parse::<T>() {
-                Ok(parsed_val) => Ok(parsed_val),
-                // Ran into an compilation error while trying to return the
-                // error as-is, so using my own error type to indicate something went wrong while parsing
-                Err(_) => Err(ConfigError::ParseError(env_key.to_string())),
+            Some(val) => {
+                // Special handling for booleans in OpenWrt's UCI system
+                if std::any::type_name::<T>() == "bool" {
+                    let v = val.trim().to_lowercase();
+                    if v == "1" || v == "true" || v == "on" || v == "yes" {
+                        return "true".parse::<T>().map_err(|_| ConfigError::ParseError(env_key.to_string()));
+                    } else if v == "0" || v == "false" || v == "off" || v == "no" {
+                        return "false".parse::<T>().map_err(|_| ConfigError::ParseError(env_key.to_string()));
+                    }
+                }
+                match val.parse::<T>() {
+                    Ok(parsed_val) => Ok(parsed_val),
+                    // Ran into an compilation error while trying to return the
+                    // error as-is, so using my own error type to indicate something went wrong while parsing
+                    Err(_) => Err(ConfigError::ParseError(env_key.to_string())),
+                }
             },
             None => match default {
                 Some(val) => Ok(val),

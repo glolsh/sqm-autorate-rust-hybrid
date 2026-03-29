@@ -2,7 +2,6 @@ extern crate core;
 
 mod baseliner;
 mod config;
-mod log;
 mod netlink;
 mod pinger;
 mod pinger_icmp;
@@ -13,7 +12,8 @@ mod time;
 mod util;
 
 use crate::baseliner::{Baseliner, ReflectorStats};
-use ::log::{debug, info};
+use ::log::{debug, error, info, warn};
+use env_logger::{Builder, Env, Target};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -35,10 +35,15 @@ use crate::reflector_selector::ReflectorSelector;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> anyhow::Result<()> {
-    println!("Starting sqm-autorate version {}", VERSION);
-
     let config = Config::new()?;
-    log::init(config.log_level)?;
+    Builder::from_env(Env::default().filter_or("SQMA_LOG_LEVEL", "info"))
+        .target(Target::Stdout)
+        .format_target(false)
+        .format_timestamp_secs()
+        .init();
+
+    info!("Starting sqm-autorate version {}", VERSION);
+
     let mut reflectors = config.load_reflectors()?;
     let start_t = Instant::now();
 
@@ -77,15 +82,17 @@ fn main() -> anyhow::Result<()> {
     reflector_pool.append(reflectors.as_mut());
 
     use std::io::Write;
-    println!("=== SQM Autorate Configuration ===");
-    println!("Interfaces: DL {} / UL {}", config.download_interface, config.upload_interface);
+    warn!("=== SQM Autorate Configuration ===");
+    warn!("Interfaces: DL {} / UL {}", config.download_interface, config.upload_interface);
     let dl_base_str = if config.download_base_kbits == 10_000_000.0 { "Unlimited".to_string() } else { format!("{} Kbps", config.download_base_kbits) };
     let ul_base_str = if config.upload_base_kbits == 10_000_000.0 { "Unlimited".to_string() } else { format!("{} Kbps", config.upload_base_kbits) };
-    println!("Base Rates: DL {} / UL {}", dl_base_str, ul_base_str);
-    println!("Delay Thresholds: DL {}ms / UL {}ms", config.download_delay_ms, config.upload_delay_ms);
+    warn!("Base Rates: DL {} / UL {}", dl_base_str, ul_base_str);
+    warn!("Delay Thresholds: DL {}ms / UL {}ms", config.download_delay_ms, config.upload_delay_ms);
     let peers_str: Vec<String> = reflector_peers_lock.read().unwrap().iter().map(|ip| ip.to_string()).collect();
-    println!("Active Reflectors: {}", peers_str.join(", "));
-    println!("==================================");
+    warn!("Active Reflectors: {}", peers_str.join(", "));
+    warn!("CAKE ACK-Filter: {}", config.cake_ack_filter);
+    warn!("CAKE RTT: {}", config.cake_rtt);
+    warn!("==================================");
     let _ = std::io::stdout().flush();
 
     let (baseliner_stats_sender, baseliner_stats_receiver) = channel();
@@ -125,8 +132,8 @@ fn main() -> anyhow::Result<()> {
         "Setting shaper rates to minimum (D/L): {} / {}",
         config.download_min_kbits, config.upload_min_kbits
     );
-    Netlink::set_qdisc_rate(down_qdisc, config.download_min_kbits as u64)?;
-    Netlink::set_qdisc_rate(up_qdisc, config.upload_min_kbits as u64)?;
+    Netlink::set_qdisc_rate(down_qdisc, config.download_min_kbits as u64, config.cake_ack_filter, &config.cake_rtt)?;
+    Netlink::set_qdisc_rate(up_qdisc, config.upload_min_kbits as u64, config.cake_ack_filter, &config.cake_rtt)?;
 
     // Sleep for a few seconds to give the shaper a chance
     // to control the queue if load is heavy
@@ -248,7 +255,10 @@ fn main() -> anyhow::Result<()> {
 
     // Wait for first error
     match error_rx.recv() {
-        Ok(e) => Err(anyhow::anyhow!("thread exited with error: {e}")),
+        Ok(e) => {
+            error!("Thread exited with error: {}", e);
+            Err(anyhow::anyhow!("thread exited with error: {e}"))
+        }
         Err(_) => Ok(()), // all senders dropped = all threads exited without error
     }
 }

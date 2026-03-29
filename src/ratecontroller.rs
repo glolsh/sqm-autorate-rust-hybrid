@@ -140,6 +140,11 @@ impl Ratecontroller {
                 state.deltas[0]
             };
 
+            debug!(
+                "Sorted {:?} deltas: {:?} | Selected: {}",
+                direction, state.deltas, state.delta_stat
+            );
+
             if state.delta_stat > 0.0 {
                 /*
                  * TODO - find where the (8 / 1000) comes from and
@@ -150,6 +155,11 @@ impl Ratecontroller {
                     * (state.current_bytes as f64 - state.previous_bytes as f64)
                     / dur.as_secs_f64();
                 state.load = state.utilisation / state.current_rate;
+
+                debug!(
+                    "direction: {:?} | util: {:.2} Kbps | load: {:.4}",
+                    direction, state.utilisation, state.load
+                );
 
                 if state.delta_stat < delay_ms
                     && state.load > self.config.high_load_level
@@ -229,9 +239,10 @@ impl Ratecontroller {
         state_dl.deltas.sort_by(|a, b| a.total_cmp(b));
         state_ul.deltas.sort_by(|a, b| a.total_cmp(b));
 
-        if state_dl.deltas.len() < 5 || state_ul.deltas.len() < 5 {
+        let required_deltas = std::cmp::min(3, reflectors.len());
+        if state_dl.deltas.len() < required_deltas || state_ul.deltas.len() < required_deltas {
             // trigger reselection
-            warn!("Not enough delta values, triggering reselection");
+            warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
             let _ = self.reselect_trigger.send(true);
         }
 
@@ -282,10 +293,14 @@ impl Ratecontroller {
         Netlink::set_qdisc_rate(
             self.state_dl.qdisc,
             self.state_dl.current_rate.round() as u64,
+            self.config.cake_ack_filter,
+            &self.config.cake_rtt,
         )?;
         Netlink::set_qdisc_rate(
             self.state_ul.qdisc,
             self.state_ul.current_rate.round() as u64,
+            self.config.cake_ack_filter,
+            &self.config.cake_rtt,
         )?;
 
         let mut speed_hist_fd: Option<File> = None;
@@ -346,10 +361,14 @@ impl Ratecontroller {
                     Netlink::set_qdisc_rate(
                         self.state_dl.qdisc,
                         self.state_dl.next_rate as u64,
+                        self.config.cake_ack_filter,
+                        &self.config.cake_rtt,
                     )?;
                     Netlink::set_qdisc_rate(
                         self.state_ul.qdisc,
                         self.state_ul.next_rate as u64,
+                        self.config.cake_ack_filter,
+                        &self.config.cake_rtt,
                     )?;
 
                     self.state_dl.current_rate = self.state_dl.next_rate;
@@ -364,7 +383,8 @@ impl Ratecontroller {
                 let targets: Vec<String> = reflectors.iter().map(|ip| ip.to_string()).collect();
                 let target_str = targets.join(", ");
 
-                println!(
+                use std::io::Write;
+                info!(
                     "Target: [{}] | DL RTT: {:.2}ms | UL RTT: {:.2}ms | DL Limit: {} Kbps | UL Limit: {} Kbps",
                     target_str,
                     self.state_dl.delta_stat,
@@ -384,11 +404,11 @@ impl Ratecontroller {
                 }
 
                 if self.state_dl.next_rate != self.state_dl.current_rate {
-                    Netlink::set_qdisc_rate(self.state_dl.qdisc, self.state_dl.next_rate as u64)?;
+                    Netlink::set_qdisc_rate(self.state_dl.qdisc, self.state_dl.next_rate as u64, self.config.cake_ack_filter, &self.config.cake_rtt)?;
                 }
 
                 if self.state_ul.next_rate != self.state_ul.current_rate {
-                    Netlink::set_qdisc_rate(self.state_ul.qdisc, self.state_ul.next_rate as u64)?;
+                    Netlink::set_qdisc_rate(self.state_ul.qdisc, self.state_ul.next_rate as u64, self.config.cake_ack_filter, &self.config.cake_rtt)?;
                 }
 
                 self.state_dl.current_rate = self.state_dl.next_rate;
