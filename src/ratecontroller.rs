@@ -191,6 +191,12 @@ impl Ratecontroller {
             }
         }
 
+        if direction == Direction::Down && self.config.download_max_kbits > 0.0 {
+            state.next_rate = state.next_rate.min(self.config.download_max_kbits);
+        } else if direction == Direction::Up && self.config.upload_max_kbits > 0.0 {
+            state.next_rate = state.next_rate.min(self.config.upload_max_kbits);
+        }
+
         state.next_rate = state.next_rate.max(min_rate).floor();
         state.previous_bytes = state.current_bytes;
         state.prev_t = now_t;

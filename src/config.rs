@@ -47,9 +47,11 @@ pub struct Config {
     pub download_interface: String,
     pub upload_interface: String,
     pub download_base_kbits: f64,
+    pub download_max_kbits: f64,
     pub download_min_percent: f64,
     pub download_min_kbits: f64,
     pub upload_base_kbits: f64,
+    pub upload_max_kbits: f64,
     pub upload_min_percent: f64,
     pub upload_min_kbits: f64,
 
@@ -87,6 +89,11 @@ impl Config {
                 "sqm-autorate.main.download_interface",
                 None,
             )?,
+            download_max_kbits: Self::get::<f64>(
+                "SQMA_DOWNLOAD_MAX_KBITS",
+                "sqm-autorate.main.download_max_kbits",
+                Some(0.0),
+            )?,
             download_min_percent: 0.0, // placeholder, computed below
             download_min_kbits: 0.0,   // placeholder, computed below
             upload_base_kbits: Self::get::<f64>(
@@ -98,6 +105,11 @@ impl Config {
                 "SQMA_UPLOAD_INTERFACE",
                 "sqm-autorate.main.upload_interface",
                 None,
+            )?,
+            upload_max_kbits: Self::get::<f64>(
+                "SQMA_UPLOAD_MAX_KBITS",
+                "sqm-autorate.main.upload_max_kbits",
+                Some(0.0),
             )?,
             upload_min_percent: 0.0, // placeholder, computed below
             upload_min_kbits: 0.0,   // placeholder, computed below

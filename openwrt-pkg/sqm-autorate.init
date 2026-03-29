@@ -15,7 +15,9 @@ start_service() {
     config_get ul_iface main upload_interface "${interface}"
 
     config_get dl_base main download_base_kbits '750000'
+    config_get dl_max main download_max_kbits '0'
     config_get ul_base main upload_base_kbits '750000'
+    config_get ul_max main upload_max_kbits '0'
     config_get dl_min main download_min_percent '50'
     config_get ul_min main upload_min_percent '50'
     config_get dl_delay main download_delay_ms '60.0'
@@ -37,7 +39,9 @@ start_service() {
         SQMA_DOWNLOAD_INTERFACE="$dl_iface" \
         SQMA_UPLOAD_INTERFACE="$ul_iface" \
         SQMA_DOWNLOAD_BASE_KBITS="$dl_base" \
+        SQMA_DOWNLOAD_MAX_KBITS="$dl_max" \
         SQMA_UPLOAD_BASE_KBITS="$ul_base" \
+        SQMA_UPLOAD_MAX_KBITS="$ul_max" \
         SQMA_DOWNLOAD_MIN_PERCENT="$dl_min" \
         SQMA_UPLOAD_MIN_PERCENT="$ul_min" \
         SQMA_DOWNLOAD_DELAY_MS="$dl_delay" \
