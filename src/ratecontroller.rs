@@ -399,24 +399,24 @@ impl Ratecontroller {
                 };
 
                 if self.state_dl.status == "CONGESTION" {
-                    info!("[CONGESTION] DL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
+                    log::debug!("[CONGESTION] DL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
                           target_str, self.state_dl.delta_stat, self.state_dl.congestion_ceiling, self.state_dl.next_rate as u64);
                 } else if self.state_dl.status == "PROBING" {
-                    info!("[PROBING] DL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
+                    log::debug!("[PROBING] DL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
                           target_str, self.state_dl.delta_stat, self.state_dl.next_rate as u64);
                 } else if self.state_dl.status == "COOLDOWN" || self.state_dl.status == "HOLD" {
-                    info!("[{}] DL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
+                    log::debug!("[{}] DL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
                           self.state_dl.status, target_str, self.state_dl.delta_stat, self.state_dl.next_rate as u64, dl_cooldown_str);
                 }
 
                 if self.state_ul.status == "CONGESTION" {
-                    info!("[CONGESTION] UL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
+                    log::debug!("[CONGESTION] UL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
                           target_str, self.state_ul.delta_stat, self.state_ul.congestion_ceiling, self.state_ul.next_rate as u64);
                 } else if self.state_ul.status == "PROBING" {
-                    info!("[PROBING] UL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
+                    log::debug!("[PROBING] UL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
                           target_str, self.state_ul.delta_stat, self.state_ul.next_rate as u64);
                 } else if self.state_ul.status == "COOLDOWN" || self.state_ul.status == "HOLD" {
-                    info!("[{}] UL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
+                    log::debug!("[{}] UL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
                           self.state_ul.status, target_str, self.state_ul.delta_stat, self.state_ul.next_rate as u64, ul_cooldown_str);
                 }
 
@@ -425,7 +425,7 @@ impl Ratecontroller {
                 if self.state_dl.next_rate != self.state_dl.current_rate
                     || self.state_ul.next_rate != self.state_ul.current_rate
                 {
-                    info!(
+                    log::debug!(
                         "self.state_ul.next_rate {} self.state_dl.next_rate {}",
                         self.state_ul.next_rate, self.state_dl.next_rate
                     );
