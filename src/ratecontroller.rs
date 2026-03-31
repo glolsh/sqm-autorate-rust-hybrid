@@ -14,6 +14,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+const BYTES_TO_KBITS: f64 = 8.0 / 1000.0;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Direction {
     Down,
@@ -100,6 +102,8 @@ pub struct Ratecontroller {
     state_dl: State,
     state_ul: State,
     up_direction: StatsDirection,
+    last_reselect_time: Instant,
+    is_offline: bool,
 }
 
 impl Ratecontroller {
@@ -138,12 +142,7 @@ impl Ratecontroller {
             );
 
             if state.delta_stat > 0.0 {
-                /*
-                 * TODO - find where the (8 / 1000) comes from and
-                 *    i. convert to a pre-computed factor
-                 *    ii. ideally, see if it can be defined in terms of constants, eg ticks per second and number of active reflectors
-                 */
-                state.utilisation = (8.0 / 1000.0)
+                state.utilisation = BYTES_TO_KBITS
                     * (state.current_bytes as f64 - state.previous_bytes as f64)
                     / dur.as_secs_f64();
                 state.load = state.utilisation / state.current_rate;
@@ -240,8 +239,11 @@ impl Ratecontroller {
         let required_deltas = std::cmp::min(3, reflectors.len());
         if state_dl.deltas.len() < required_deltas || state_ul.deltas.len() < required_deltas {
             // trigger reselection
-            warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
-            let _ = self.reselect_trigger.send(true);
+            if now_t.duration_since(self.last_reselect_time).as_secs() >= 60 {
+                warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
+                let _ = self.reselect_trigger.send(true);
+                self.last_reselect_time = now_t;
+            }
         }
 
         Ok(())
@@ -271,6 +273,8 @@ impl Ratecontroller {
             state_dl: State::new(dl_qdisc, cur_rx),
             state_ul: State::new(ul_qdisc, cur_tx),
             up_direction,
+            last_reselect_time: Instant::now() - Duration::from_secs(60),
+            is_offline: false,
         })
     }
 
@@ -334,7 +338,10 @@ impl Ratecontroller {
                 self.update_deltas()?;
 
                 if self.state_dl.deltas.is_empty() || self.state_ul.deltas.is_empty() {
-                    warn!("No reflector data available, dropping to minimum rates");
+                    if !self.is_offline {
+                        warn!("No reflector data available, dropping to minimum rates");
+                        self.is_offline = true;
+                    }
                     self.state_dl.next_rate = self.config.download_min_kbits;
                     self.state_ul.next_rate = self.config.upload_min_kbits;
 
@@ -354,6 +361,11 @@ impl Ratecontroller {
                     self.state_dl.current_rate = self.state_dl.next_rate;
                     self.state_ul.current_rate = self.state_ul.next_rate;
                     continue;
+                }
+
+                if self.is_offline {
+                    info!("Network connection restored. Resuming rate control.");
+                    self.is_offline = false;
                 }
 
                 self.calculate_rate(Direction::Down)?;

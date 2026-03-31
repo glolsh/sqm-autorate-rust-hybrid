@@ -262,7 +262,7 @@ fn main() -> anyhow::Result<()> {
     match error_rx.recv() {
         Ok(e) => {
             error!("Thread exited with error: {}", e);
-            Err(anyhow::anyhow!("thread exited with error: {e}"))
+            std::process::exit(1);
         }
         Err(_) => Ok(()), // all senders dropped = all threads exited without error
     }

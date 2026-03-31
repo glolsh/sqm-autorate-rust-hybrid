@@ -123,11 +123,11 @@ impl Baseliner {
                 }
             }
 
-            info!(
+            log::debug!(
                 "Reflector {} up baseline = {} down baseline = {}",
                 time_data.reflector, owd_baseline.up_ewma, owd_baseline.down_ewma
             );
-            info!(
+            log::debug!(
                 "Reflector {} up recent = {} down recent = {}",
                 time_data.reflector, owd_recent.up_ewma, owd_recent.down_ewma
             );
