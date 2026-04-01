@@ -14,6 +14,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+const BYTES_TO_KBITS: f64 = 8.0 / 1000.0;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Direction {
     Down,
@@ -100,6 +102,8 @@ pub struct Ratecontroller {
     state_dl: State,
     state_ul: State,
     up_direction: StatsDirection,
+    last_reselect_time: Instant,
+    is_offline: bool,
 }
 
 impl Ratecontroller {
@@ -138,12 +142,7 @@ impl Ratecontroller {
             );
 
             if state.delta_stat > 0.0 {
-                /*
-                 * TODO - find where the (8 / 1000) comes from and
-                 *    i. convert to a pre-computed factor
-                 *    ii. ideally, see if it can be defined in terms of constants, eg ticks per second and number of active reflectors
-                 */
-                state.utilisation = (8.0 / 1000.0)
+                state.utilisation = BYTES_TO_KBITS
                     * (state.current_bytes as f64 - state.previous_bytes as f64)
                     / dur.as_secs_f64();
                 state.load = state.utilisation / state.current_rate;
@@ -164,8 +163,9 @@ impl Ratecontroller {
                 } else if state.delta_stat > delay_ms {
                     state.status = "CONGESTION".to_string();
 
-                    // Multiplicative decrease based on actual throughput
-                    state.next_rate = state.utilisation * self.config.decrease_multiplier;
+                    // Protect against idle lag spikes: never calculate the drop from a base lower than 50% of the current limit
+                    let effective_baseline = state.utilisation.max(state.current_rate * 0.5);
+                    state.next_rate = effective_baseline * self.config.decrease_multiplier;
 
                     state.congestion_ceiling = state.utilisation;
                     state.cooldown_until = Some(now_t + Duration::from_secs_f64(self.config.cooldown_secs));
@@ -239,8 +239,11 @@ impl Ratecontroller {
         let required_deltas = std::cmp::min(3, reflectors.len());
         if state_dl.deltas.len() < required_deltas || state_ul.deltas.len() < required_deltas {
             // trigger reselection
-            warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
-            let _ = self.reselect_trigger.send(true);
+            if now_t.duration_since(self.last_reselect_time).as_secs() >= 60 {
+                warn!("Not enough delta values (required: {}), triggering reselection", required_deltas);
+                let _ = self.reselect_trigger.send(true);
+                self.last_reselect_time = now_t;
+            }
         }
 
         Ok(())
@@ -270,6 +273,8 @@ impl Ratecontroller {
             state_dl: State::new(dl_qdisc, cur_rx),
             state_ul: State::new(ul_qdisc, cur_tx),
             up_direction,
+            last_reselect_time: Instant::now() - Duration::from_secs(60),
+            is_offline: false,
         })
     }
 
@@ -333,7 +338,10 @@ impl Ratecontroller {
                 self.update_deltas()?;
 
                 if self.state_dl.deltas.is_empty() || self.state_ul.deltas.is_empty() {
-                    warn!("No reflector data available, dropping to minimum rates");
+                    if !self.is_offline {
+                        warn!("No reflector data available, dropping to minimum rates");
+                        self.is_offline = true;
+                    }
                     self.state_dl.next_rate = self.config.download_min_kbits;
                     self.state_ul.next_rate = self.config.upload_min_kbits;
 
@@ -353,6 +361,11 @@ impl Ratecontroller {
                     self.state_dl.current_rate = self.state_dl.next_rate;
                     self.state_ul.current_rate = self.state_ul.next_rate;
                     continue;
+                }
+
+                if self.is_offline {
+                    info!("Network connection restored. Resuming rate control.");
+                    self.is_offline = false;
                 }
 
                 self.calculate_rate(Direction::Down)?;
@@ -386,24 +399,24 @@ impl Ratecontroller {
                 };
 
                 if self.state_dl.status == "CONGESTION" {
-                    info!("[CONGESTION] DL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
+                    log::debug!("[CONGESTION] DL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
                           target_str, self.state_dl.delta_stat, self.state_dl.congestion_ceiling, self.state_dl.next_rate as u64);
                 } else if self.state_dl.status == "PROBING" {
-                    info!("[PROBING] DL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
+                    log::debug!("[PROBING] DL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
                           target_str, self.state_dl.delta_stat, self.state_dl.next_rate as u64);
                 } else if self.state_dl.status == "COOLDOWN" || self.state_dl.status == "HOLD" {
-                    info!("[{}] DL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
+                    log::debug!("[{}] DL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
                           self.state_dl.status, target_str, self.state_dl.delta_stat, self.state_dl.next_rate as u64, dl_cooldown_str);
                 }
 
                 if self.state_ul.status == "CONGESTION" {
-                    info!("[CONGESTION] UL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
+                    log::debug!("[CONGESTION] UL Target: [{}] | RTT: {:.2}ms | Ceiling: {:.0} Kbps | Dropping to: {} Kbps",
                           target_str, self.state_ul.delta_stat, self.state_ul.congestion_ceiling, self.state_ul.next_rate as u64);
                 } else if self.state_ul.status == "PROBING" {
-                    info!("[PROBING] UL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
+                    log::debug!("[PROBING] UL Target: [{}] | RTT: {:.2}ms | Limit: {} Kbps",
                           target_str, self.state_ul.delta_stat, self.state_ul.next_rate as u64);
                 } else if self.state_ul.status == "COOLDOWN" || self.state_ul.status == "HOLD" {
-                    info!("[{}] UL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
+                    log::debug!("[{}] UL Target: [{}] | RTT: {:.2}ms | Holding at: {} Kbps{}",
                           self.state_ul.status, target_str, self.state_ul.delta_stat, self.state_ul.next_rate as u64, ul_cooldown_str);
                 }
 
@@ -412,7 +425,7 @@ impl Ratecontroller {
                 if self.state_dl.next_rate != self.state_dl.current_rate
                     || self.state_ul.next_rate != self.state_ul.current_rate
                 {
-                    info!(
+                    log::debug!(
                         "self.state_ul.next_rate {} self.state_dl.next_rate {}",
                         self.state_ul.next_rate, self.state_dl.next_rate
                     );

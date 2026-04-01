@@ -1,12 +1,12 @@
 use crate::util::{MutexExt, RwLockExt};
 use crate::{Config, ReflectorStats};
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct ReflectorSelector {
     pub config: Config,
@@ -25,6 +25,8 @@ impl ReflectorSelector {
 
         // Initial wait of several seconds to allow some OWD data to build up
         sleep(baseline_sleep_time);
+
+        let mut penalty_box: std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)> = std::collections::HashMap::new();
 
         loop {
             /*
@@ -58,6 +60,17 @@ impl ReflectorSelector {
                 if next_peers.contains(next_candidate) {
                     continue;
                 }
+                if let Some((fail_count, last_check_time)) = penalty_box.get(next_candidate) {
+                    let penalty_duration = match *fail_count {
+                        0 => 0,
+                        1 => 300, // 5 minutes
+                        2 => 1800, // 30 minutes
+                        n => std::cmp::min(3600 * 2u64.pow(n.saturating_sub(3) as u32), 43200), // capped at 12 hours
+                    };
+                    if Instant::now().duration_since(*last_check_time).as_secs() < penalty_duration {
+                        continue;
+                    }
+                }
                 debug!("Next candidate: {}", next_candidate.to_string());
                 next_peers.push(*next_candidate);
             }
@@ -81,11 +94,23 @@ impl ReflectorSelector {
             let owd_recent = self.owd_recent.lock_anyhow()?;
 
             for peer in next_peers {
-                if owd_recent.contains_key(&peer) {
+                if owd_recent.contains_key(&peer) && Instant::now().duration_since(owd_recent[&peer].last_receive_time_s).as_secs() < 30 {
+                    penalty_box.remove(&peer);
                     let rtt = (owd_recent[&peer].down_ewma + owd_recent[&peer].up_ewma) as u64;
                     candidates.push((peer, rtt));
-                    info!("Candidate reflector: {} RTT: {}", peer.to_string(), rtt);
+                    debug!("Candidate reflector: {} RTT: {}", peer.to_string(), rtt);
                 } else {
+                    let grace_period_active = penalty_box.get(&peer).map_or(false, |(_, last_check_time)| {
+                        Instant::now().duration_since(*last_check_time).as_secs() < 10
+                    });
+
+                    if !grace_period_active {
+                        let entry = penalty_box.entry(peer).or_insert((0, Instant::now()));
+                        entry.0 += 1;
+                        entry.1 = Instant::now();
+                        warn!("Peer {} unresponsive. Fail count: {}. Next retry delayed.", peer, entry.0);
+                    }
+
                     info!(
                         "No data found from candidate reflector: {} - skipping",
                         peer.to_string()
@@ -102,7 +127,7 @@ impl ReflectorSelector {
             candidates.truncate(candidate_pool_num);
 
             for (candidate, rtt) in candidates.iter() {
-                info!("Fastest candidate {}: {}", candidate, rtt);
+                debug!("Fastest candidate {}: {}", candidate, rtt);
             }
 
             // Shuffle the deck so we avoid overwhelming good reflectors (Fisher-Yates)
@@ -118,7 +143,7 @@ impl ReflectorSelector {
             let mut new_peers = Vec::new();
             for i in 0..num_reflectors {
                 new_peers.push(candidates[i as usize].0);
-                info!(
+                debug!(
                     "New selected peer: {}",
                     candidates[i as usize].0.to_string()
                 );
