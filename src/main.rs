@@ -91,8 +91,6 @@ fn main() -> anyhow::Result<()> {
     warn!("Delay Thresholds: DL {}ms / UL {}ms", config.download_delay_ms, config.upload_delay_ms);
     let peers_str: Vec<String> = reflector_peers_lock.read().unwrap().iter().map(|ip| ip.to_string()).collect();
     warn!("Active Reflectors: {}", peers_str.join(", "));
-    warn!("CAKE ACK-Filter: {}", config.cake_ack_filter);
-    warn!("CAKE RTT: {}", config.cake_rtt);
     warn!("==================================");
     let _ = std::io::stdout().flush();
 
@@ -137,8 +135,8 @@ fn main() -> anyhow::Result<()> {
         "Setting shaper rates to minimum (D/L): {} / {}",
         config.download_min_kbits, config.upload_min_kbits
     );
-    Netlink::set_qdisc_rate(down_qdisc, config.download_min_kbits as u64, config.cake_ack_filter, &config.cake_rtt)?;
-    Netlink::set_qdisc_rate(up_qdisc, config.upload_min_kbits as u64, config.cake_ack_filter, &config.cake_rtt)?;
+    Netlink::set_qdisc_rate(down_qdisc, config.download_min_kbits as u64)?;
+    Netlink::set_qdisc_rate(up_qdisc, config.upload_min_kbits as u64)?;
 
     // Sleep for a few seconds to give the shaper a chance
     // to control the queue if load is heavy

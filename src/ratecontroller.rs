@@ -290,14 +290,10 @@ impl Ratecontroller {
         Netlink::set_qdisc_rate(
             self.state_dl.qdisc,
             self.state_dl.current_rate.round() as u64,
-            self.config.cake_ack_filter,
-            &self.config.cake_rtt,
         )?;
         Netlink::set_qdisc_rate(
             self.state_ul.qdisc,
             self.state_ul.current_rate.round() as u64,
-            self.config.cake_ack_filter,
-            &self.config.cake_rtt,
         )?;
 
         let mut stats_fd: Option<File> = None;
@@ -348,14 +344,10 @@ impl Ratecontroller {
                     Netlink::set_qdisc_rate(
                         self.state_dl.qdisc,
                         self.state_dl.next_rate as u64,
-                        self.config.cake_ack_filter,
-                        &self.config.cake_rtt,
                     )?;
                     Netlink::set_qdisc_rate(
                         self.state_ul.qdisc,
                         self.state_ul.next_rate as u64,
-                        self.config.cake_ack_filter,
-                        &self.config.cake_rtt,
                     )?;
 
                     self.state_dl.current_rate = self.state_dl.next_rate;
@@ -432,11 +424,11 @@ impl Ratecontroller {
                 }
 
                 if self.state_dl.next_rate != self.state_dl.current_rate {
-                    Netlink::set_qdisc_rate(self.state_dl.qdisc, self.state_dl.next_rate as u64, self.config.cake_ack_filter, &self.config.cake_rtt)?;
+                    Netlink::set_qdisc_rate(self.state_dl.qdisc, self.state_dl.next_rate as u64)?;
                 }
 
                 if self.state_ul.next_rate != self.state_ul.current_rate {
-                    Netlink::set_qdisc_rate(self.state_ul.qdisc, self.state_ul.next_rate as u64, self.config.cake_ack_filter, &self.config.cake_rtt)?;
+                    Netlink::set_qdisc_rate(self.state_ul.qdisc, self.state_ul.next_rate as u64)?;
                 }
 
                 self.state_dl.current_rate = self.state_dl.next_rate;

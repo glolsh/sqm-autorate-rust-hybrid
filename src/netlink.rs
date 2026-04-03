@@ -111,23 +111,7 @@ impl Netlink {
         Netlink::qdisc_from_ifindex(ifindex, ifname)
     }
 
-    fn parse_rtt(rtt_str: &str) -> Option<u32> {
-        let rtt_str = rtt_str.trim().to_lowercase();
-        let val_f64 = if let Some(val) = rtt_str.strip_suffix("ms") {
-            val.parse::<f64>().ok().map(|v| v * 1000.0)
-        } else if let Some(val) = rtt_str.strip_suffix("us") {
-            val.parse::<f64>().ok()
-        } else if let Some(val) = rtt_str.strip_suffix("s") {
-            val.parse::<f64>().ok().map(|v| v * 1_000_000.0)
-        } else {
-            rtt_str.parse::<f64>().ok().map(|v| v * 1000.0) // default to ms
-        };
-
-        // ensure no overflow when casting to u32
-        val_f64.map(|v| v.clamp(0.0, u32::MAX as f64) as u32)
-    }
-
-    pub fn set_qdisc_rate(qdisc: Qdisc, bandwidth_kbit: u64, ack_filter: bool, rtt: &str) -> Result<(), NetlinkError> {
+    pub fn set_qdisc_rate(qdisc: Qdisc, bandwidth_kbit: u64) -> Result<(), NetlinkError> {
         let mut socket = NetlinkSocket::new();
         let bandwidth = bandwidth_kbit * 1000 / 8;
 
@@ -139,20 +123,11 @@ impl Netlink {
             .set_change()
             .op_newqdisc_do_request(&header);
 
-        let mut cake_options = request.encode()
+        request.encode()
             .push_kind(c"cake")
             .nested_options_cake()
-            .push_base_rate64(bandwidth);
-
-        if ack_filter {
-            cake_options = cake_options.push_ack_filter(1);
-        }
-
-        if let Some(rtt_us) = Self::parse_rtt(rtt) {
-            cake_options = cake_options.push_rtt(rtt_us);
-        }
-
-        cake_options.end_nested();
+            .push_base_rate64(bandwidth)
+            .end_nested();
 
         let mut iter = socket.request(&request)?;
         iter.recv_ack()?;

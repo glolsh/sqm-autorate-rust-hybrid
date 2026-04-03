@@ -56,8 +56,6 @@ pub struct Config {
     // Output section
     pub stats_file: String,
     pub suppress_statistics: bool,
-    pub cake_ack_filter: bool,
-    pub cake_rtt: String,
 
     // Advanced section
     pub download_delay_ms: f64,
@@ -130,16 +128,6 @@ impl Config {
                 "SQMA_SUPPRESS_STATISTICS",
                 "sqm-autorate.main.suppress_statistics",
                 Some(false),
-            )?,
-            cake_ack_filter: Self::get::<bool>(
-                "SQMA_CAKE_ACK_FILTER",
-                "sqm-autorate.main.cake_ack_filter",
-                Some(false),
-            )?,
-            cake_rtt: Self::get::<String>(
-                "SQMA_CAKE_RTT",
-                "sqm-autorate.main.cake_rtt",
-                Some("100ms".to_string()),
             )?,
             // Advanced section
             download_delay_ms: Self::get::<f64>(

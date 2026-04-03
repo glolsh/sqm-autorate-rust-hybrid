@@ -26,8 +26,6 @@ start_service() {
     
     config_get reflectors main reflectors ''
     config_get log_level main log_level 'info'
-    config_get cake_ack_filter main cake_ack_filter 'false'
-    config_get cake_rtt main cake_rtt '100ms'
 
     config_get increase_step_kbits main increase_step_kbits '5000.0'
     config_get decrease_multiplier main decrease_multiplier '0.85'
@@ -52,8 +50,6 @@ start_service() {
         SQMA_UPLOAD_DELAY_MS="$ul_delay" \
         SQMA_HIGH_LOAD_LEVEL="$high_load" \
         SQMA_REFLECTORS="$reflectors" \
-        SQMA_CAKE_ACK_FILTER="$cake_ack_filter" \
-        SQMA_CAKE_RTT="$cake_rtt" \
         SQMA_INCREASE_STEP_KBITS="$increase_step_kbits" \
         SQMA_DECREASE_MULTIPLIER="$decrease_multiplier" \
         SQMA_COOLDOWN_SECS="$cooldown_secs"
