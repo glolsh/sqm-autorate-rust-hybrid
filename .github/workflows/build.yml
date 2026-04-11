@@ -1,19 +1,31 @@
-name: Build OpenWrt IPK
+name: Build SQM-Autorate (Dual Format)
 
 on:
   push:
     branches:
       - master
-  pull_request:
+      - main
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    name: Cross-compile & Package
+    name: Build for OpenWrt ${{ matrix.owrt_ver }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - owrt_ver: "24.10.0"
+            pkg_ext: "ipk"
+            sdk_url: "https://downloads.openwrt.org/releases/24.10.0/targets/rockchip/armv8/openwrt-sdk-24.10.0-rockchip-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          
+          - owrt_ver: "25.12.2"
+            pkg_ext: "apk"
+            sdk_url: "https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 
     steps:
       - name: Checkout Repository
@@ -22,7 +34,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.owrt_ver }}
 
       - name: Install cross (Binary Release)
         run: |
@@ -33,18 +45,18 @@ jobs:
 
       - name: Build Rust Binary
         run: |
-          cross build --release --target aarch64-unknown-linux-musl
+          ~/.cargo/bin/cross build --release --target aarch64-unknown-linux-musl
 
-      - name: Prepare OpenWrt SDK & Package
-        env:
-          SDK_URL: "https://downloads.openwrt.org/releases/24.10.0/targets/rockchip/armv8/openwrt-sdk-24.10.0-rockchip-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y zstd python3-pyelftools
-          
-          wget -qO sdk.tar.zst "$SDK_URL"
+          sudo apt-get install -y zstd build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget python3-pyelftools python3-setuptools python3-dev
+
+      - name: Prepare OpenWrt SDK & Package
+        run: |
+          wget -qO sdk.tar.zst "${{ matrix.sdk_url }}"
           mkdir openwrt-sdk
-          tar -xf sdk.tar.zst -C openwrt-sdk --strip-components=1
+          tar -I zstd -xf sdk.tar.zst -C openwrt-sdk --strip-components=1
 
           cd openwrt-sdk
           PKG_DIR="package/sqm-autorate"
@@ -53,27 +65,26 @@ jobs:
           cp -r $GITHUB_WORKSPACE/openwrt-pkg/* "$PKG_DIR/"
           cp $GITHUB_WORKSPACE/target/aarch64-unknown-linux-musl/release/sqm-autorate-rust "$PKG_DIR/"
 
-          sed -i "s/PKG_RELEASE:=1/PKG_RELEASE:=${{ github.run_number }}/" "$PKG_DIR/Makefile"
+          sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${{ github.run_number }}/" "$PKG_DIR/Makefile"
 
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
           make defconfig
-          make package/sqm-autorate/compile V=s
+          make package/sqm-autorate/compile V=s -j$(nproc)
 
-          IPK_FILE=$(find bin/packages/ -name "sqm-autorate_*.ipk" | head -n 1)
+          FILE_PATH=$(find bin/packages/ -name "sqm-autorate*.${{ matrix.pkg_ext }}" | head -n 1)
           
-          if [ -z "$IPK_FILE" ]; then
-            echo "Error: IPK file not found after build."
+          if [ -z "$FILE_PATH" ]; then
+            echo "Error: Failed to find built .${{ matrix.pkg_ext }} file."
             exit 1
           fi
           
-          echo "Found IPK: $IPK_FILE"
-          echo "ipk_path=openwrt-sdk/$IPK_FILE" >> $GITHUB_ENV
+          echo "artifact_path=openwrt-sdk/$FILE_PATH" >> $GITHUB_ENV
 
-      - name: Upload IPK Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: sqm-autorate-ipk
-          path: ${{ env.ipk_path }}
+          name: sqm-autorate-${{ matrix.owrt_ver }}-rev${{ github.run_number }}
+          path: ${{ env.artifact_path }}
           if-no-files-found: error
