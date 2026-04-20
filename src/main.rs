@@ -265,11 +265,13 @@ fn main() -> anyhow::Result<()> {
     drop(error_tx);
 
     // Wait for first error
+    let mut thread_err = None;
     loop {
         match error_rx.recv_timeout(Duration::from_millis(500)) {
             Ok(e) => {
                 error!("Thread exited with error: {}", e);
-                std::process::exit(1);
+                thread_err = Some(e);
+                break;
             }
             Err(RecvTimeoutError::Timeout) => {
                 if SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
@@ -284,5 +286,8 @@ fn main() -> anyhow::Result<()> {
     Netlink::set_qdisc_rate(down_qdisc, config.download_base_kbits as u64).unwrap_or_else(|e| error!("Failed to restore down_qdisc: {}", e));
     Netlink::set_qdisc_rate(up_qdisc, config.upload_base_kbits as u64).unwrap_or_else(|e| error!("Failed to restore up_qdisc: {}", e));
 
+    if let Some(e) = thread_err {
+        return Err(e);
+    }
     Ok(())
 }

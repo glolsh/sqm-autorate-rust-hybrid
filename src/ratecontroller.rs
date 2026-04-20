@@ -298,7 +298,6 @@ impl Ratecontroller {
 
         let mut stats_fd: Option<File> = None;
         let mut stats_fd_inner: File;
-        let mut last_reselect_t = Instant::now() - Duration::from_secs(30);
 
         if !self.config.suppress_statistics {
             stats_fd_inner = File::options()
@@ -340,9 +339,9 @@ impl Ratecontroller {
                     drop(reflector_stats);
 
                     if is_empty {
-                        if now_t.duration_since(last_reselect_t).as_secs() >= 30 {
+                        if now_t.duration_since(self.last_reselect_time).as_secs() >= 30 {
                             let _ = self.reselect_trigger.send(true);
-                            last_reselect_t = now_t;
+                            self.last_reselect_time = now_t;
                         }
                     }
 
