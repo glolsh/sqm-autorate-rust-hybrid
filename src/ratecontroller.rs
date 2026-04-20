@@ -334,6 +334,17 @@ impl Ratecontroller {
                 self.update_deltas()?;
 
                 if self.state_dl.deltas.is_empty() || self.state_ul.deltas.is_empty() {
+                    let reflector_stats = self.owd_recent.lock_anyhow()?;
+                    let is_empty = reflector_stats.is_empty();
+                    drop(reflector_stats);
+
+                    if is_empty {
+                        if now_t.duration_since(self.last_reselect_time).as_secs() >= 30 {
+                            let _ = self.reselect_trigger.send(true);
+                            self.last_reselect_time = now_t;
+                        }
+                    }
+
                     if !self.is_offline {
                         warn!("No reflector data available, dropping to minimum rates");
                         self.is_offline = true;

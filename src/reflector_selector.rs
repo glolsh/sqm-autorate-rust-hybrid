@@ -38,6 +38,7 @@ impl ReflectorSelector {
                 .trigger_channel
                 .recv_timeout(selector_sleep_time)
                 .unwrap_or(true);
+            while let Ok(_) = self.trigger_channel.try_recv() {}
             reselection_count += 1;
             info!("Starting reselection [#{}]", reselection_count);
 
