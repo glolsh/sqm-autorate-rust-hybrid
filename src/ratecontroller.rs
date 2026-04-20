@@ -298,6 +298,7 @@ impl Ratecontroller {
 
         let mut stats_fd: Option<File> = None;
         let mut stats_fd_inner: File;
+        let mut last_reselect_t = Instant::now() - Duration::from_secs(30);
 
         if !self.config.suppress_statistics {
             stats_fd_inner = File::options()
@@ -334,6 +335,17 @@ impl Ratecontroller {
                 self.update_deltas()?;
 
                 if self.state_dl.deltas.is_empty() || self.state_ul.deltas.is_empty() {
+                    let reflector_stats = self.owd_recent.lock_anyhow()?;
+                    let is_empty = reflector_stats.is_empty();
+                    drop(reflector_stats);
+
+                    if is_empty {
+                        if now_t.duration_since(last_reselect_t).as_secs() >= 30 {
+                            let _ = self.reselect_trigger.send(true);
+                            last_reselect_t = now_t;
+                        }
+                    }
+
                     if !self.is_offline {
                         warn!("No reflector data available, dropping to minimum rates");
                         self.is_offline = true;

@@ -21,6 +21,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 use std::{process, thread};
 
@@ -34,8 +35,15 @@ use crate::reflector_selector::ReflectorSelector;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub static SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+extern "C" fn signal_handler(_: libc::c_int) { SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed); }
+
 fn main() -> anyhow::Result<()> {
     let config = Config::new()?;
+    unsafe {
+        libc::signal(libc::SIGINT, signal_handler as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, signal_handler as *const () as libc::sighandler_t);
+    }
     Builder::from_env(Env::default().filter_or("SQMA_LOG_LEVEL", "info"))
         .target(Target::Stdout)
         .format_target(false)
@@ -257,11 +265,24 @@ fn main() -> anyhow::Result<()> {
     drop(error_tx);
 
     // Wait for first error
-    match error_rx.recv() {
-        Ok(e) => {
-            error!("Thread exited with error: {}", e);
-            std::process::exit(1);
+    loop {
+        match error_rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(e) => {
+                error!("Thread exited with error: {}", e);
+                std::process::exit(1);
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
-        Err(_) => Ok(()), // all senders dropped = all threads exited without error
     }
+
+    info!("Graceful shutdown initiated...");
+    Netlink::set_qdisc_rate(down_qdisc, config.download_base_kbits as u64).unwrap_or_else(|e| error!("Failed to restore down_qdisc: {}", e));
+    Netlink::set_qdisc_rate(up_qdisc, config.upload_base_kbits as u64).unwrap_or_else(|e| error!("Failed to restore up_qdisc: {}", e));
+
+    Ok(())
 }
