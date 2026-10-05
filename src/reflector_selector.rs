@@ -26,7 +26,7 @@ impl ReflectorSelector {
         // Initial wait of several seconds to allow some OWD data to build up
         sleep(baseline_sleep_time);
 
-        let mut penalty_box: std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)> = std::collections::HashMap::new();
+        let mut penalty_box: HashMap<IpAddr, (u32, Instant)> = HashMap::new();
 
         loop {
             /*
@@ -88,11 +88,22 @@ impl ReflectorSelector {
             // Wait for several seconds to allow all reflectors to be re-baselined
             sleep(baseline_sleep_time);
 
-            // Re-acquire the lock when we wake up again
+            // Re-acquire the locks when we wake up again. Lock order must match the
+            // rate controller (owd_recent before peers) to avoid a deadlock.
+            let owd_recent = self.owd_recent.lock_anyhow()?;
             reflectors_peers = self.reflector_peers_lock.write_anyhow()?;
 
             let mut candidates = Vec::new();
-            let owd_recent = self.owd_recent.lock_anyhow()?;
+
+            let now = Instant::now();
+            let is_fresh = |peer: &IpAddr| {
+                owd_recent
+                    .get(peer)
+                    .is_some_and(|s| now.duration_since(s.last_receive_time_s).as_secs() < 30)
+            };
+            // If no reflector at all answered, the link is most likely down. Penalising
+            // every reflector would keep us without peers for hours after it recovers.
+            let link_alive = next_peers.iter().any(is_fresh);
 
             for peer in next_peers {
                 if owd_recent.contains_key(&peer) && Instant::now().duration_since(owd_recent[&peer].last_receive_time_s).as_secs() < 30 {
@@ -105,7 +116,7 @@ impl ReflectorSelector {
                         Instant::now().duration_since(*last_check_time).as_secs() < 10
                     });
 
-                    if !grace_period_active {
+                    if !grace_period_active && link_alive {
                         let entry = penalty_box.entry(peer).or_insert((0, Instant::now()));
                         entry.0 += 1;
                         entry.1 = Instant::now();
@@ -120,7 +131,7 @@ impl ReflectorSelector {
             }
 
             // Sort the candidates table now by ascending RTT
-            candidates.sort_by(|a, b| a.1.cmp(&b.1));
+            candidates.sort_by_key(|c| c.1);
 
             // Now we will just limit the candidates down to 2 * num_reflectors
             let mut num_reflectors = self.config.num_reflectors;
@@ -150,7 +161,12 @@ impl ReflectorSelector {
                 );
             }
 
-            *reflectors_peers = new_peers;
+            if new_peers.is_empty() {
+                // Keep the previous peers so we can recover as soon as the link is back
+                warn!("No usable reflectors found, keeping current peers");
+            } else {
+                *reflectors_peers = new_peers;
+            }
         }
     }
 }

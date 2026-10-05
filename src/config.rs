@@ -194,6 +194,7 @@ impl Config {
 
         let mut config = config;
 
+        // 0 means "unlimited": use a very high base so CAKE never limits us initially
         if config.download_base_kbits == 0.0 {
             config.download_base_kbits = 10_000_000.0;
         }
@@ -201,7 +202,41 @@ impl Config {
             config.upload_base_kbits = 10_000_000.0;
         }
 
+        config.validate()?;
+
         Ok(config)
+    }
+
+    fn validate(&self) -> Result<()> {
+        use anyhow::ensure;
+
+        ensure!(
+            self.decrease_multiplier > 0.0 && self.decrease_multiplier < 1.0,
+            "decrease_multiplier must be between 0 and 1 (exclusive), got {}",
+            self.decrease_multiplier
+        );
+        ensure!(
+            self.tick_interval >= 0.05 && self.tick_interval <= 60.0,
+            "tick_interval must be between 0.05 and 60 seconds, got {}",
+            self.tick_interval
+        );
+        ensure!(
+            self.min_change_interval > 0.0 && self.cooldown_secs >= 0.0 && self.increase_step_kbits > 0.0,
+            "min_change_interval, cooldown_secs and increase_step_kbits must be positive"
+        );
+        ensure!(self.num_reflectors >= 1, "num_reflectors must be at least 1");
+        for (dir, min, base, max) in [
+            ("download", self.download_min_kbits, self.download_base_kbits, self.download_max_kbits),
+            ("upload", self.upload_min_kbits, self.upload_base_kbits, self.upload_max_kbits),
+        ] {
+            ensure!(min > 0.0, "{dir}_min_kbits must be positive");
+            ensure!(min <= base, "{dir}_min_kbits ({min}) must not exceed {dir}_base_kbits ({base})");
+            ensure!(
+                max == 0.0 || max >= min,
+                "{dir}_max_kbits ({max}) must be 0 (unlimited) or at least {dir}_min_kbits ({min})"
+            );
+        }
+        Ok(())
     }
 
     fn get<T: FromStr>(env_key: &str, uci_key: &str, default: Option<T>) -> Result<T, ConfigError> {
@@ -271,8 +306,12 @@ impl Config {
 
         for ip_str in self.reflectors.split(|c| c == ' ' || c == ',') {
             let ip_str = ip_str.trim();
-            if !ip_str.is_empty() {
-                reflectors.push(IpAddr::from_str(ip_str)?);
+            if ip_str.is_empty() {
+                continue;
+            }
+            match IpAddr::from_str(ip_str)? {
+                ip @ IpAddr::V4(_) => reflectors.push(ip),
+                ip => anyhow::bail!("IPv6 reflectors are not supported: {}", ip),
             }
         }
 

@@ -28,11 +28,34 @@ impl Time {
         self.time_ns
     }
 
-    pub fn as_secs_f64(&self) -> f64 {
-        self.time_s as f64 + self.time_ns as f64 / 1_000_000_000.0
-    }
-
     pub fn to_milliseconds(&self) -> u64 {
         (self.time_s * 1000) + (self.time_ns / 1000000)
+    }
+}
+
+const MS_PER_DAY: i64 = 86_400_000;
+
+/// Difference of two "milliseconds since midnight" timestamps, taking the
+/// midnight wrap-around into account. The result is in (-12h, +12h].
+pub fn wrapped_diff_ms(a: i64, b: i64) -> i64 {
+    let d = (a - b).rem_euclid(MS_PER_DAY);
+    if d > MS_PER_DAY / 2 { d - MS_PER_DAY } else { d }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrapped_diff_ms;
+
+    #[test]
+    fn diff_without_wrap() {
+        assert_eq!(wrapped_diff_ms(1_050, 1_000), 50);
+        assert_eq!(wrapped_diff_ms(1_000, 1_050), -50);
+    }
+
+    #[test]
+    fn diff_across_midnight() {
+        // sent just before midnight, received just after
+        assert_eq!(wrapped_diff_ms(10, 86_400_000 - 20), 30);
+        assert_eq!(wrapped_diff_ms(86_400_000 - 20, 10), -30);
     }
 }

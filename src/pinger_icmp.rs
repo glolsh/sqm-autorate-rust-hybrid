@@ -52,6 +52,7 @@ impl PingListener for PingerICMPEchoListener {
                         receive_timestamp: 0,
                         transmit_timestamp: 0,
                         last_receive_time_s: Instant::now(),
+                        echo_based: true,
                     })
                 } else {
                     Err(PingError::InvalidPacket(format!("Packet had type {:?}, but did not match the structure", pkt.typ)))

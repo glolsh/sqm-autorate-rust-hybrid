@@ -33,6 +33,8 @@ pub struct PingReply {
     pub receive_timestamp: i64,
     pub transmit_timestamp: i64,
     pub last_receive_time_s: Instant,
+    /// True if the sample came from an ICMP echo (RTT/2) rather than ICMP timestamps
+    pub echo_based: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,10 +83,18 @@ pub trait PingListener {
         loop {
             let (pkt, sender) = match socket.rcv_from() {
                 Ok(val) => val,
-                Err(_) => continue,
+                Err(e) => {
+                    // Avoid spinning at 100% CPU if the socket is persistently failing
+                    debug!("ICMP receive error: {}", e);
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
             };
 
-            let addr: IpAddr = sender.as_socket().unwrap().ip();
+            let addr: IpAddr = match sender.as_socket() {
+                Some(sock) => sock.ip(),
+                None => continue,
+            };
 
             let reflectors = reflectors_lock.read_anyhow()?;
             if !reflectors.contains(&addr) {
@@ -142,11 +152,15 @@ pub trait PingSender {
             for reflector in reflectors.iter() {
                 let addr: Ipv4Addr = match reflector {
                     IpAddr::V4(ipv4) => *ipv4,
-                    IpAddr::V6(_) => unimplemented!(),
+                    IpAddr::V6(_) => continue, // IPv6 reflectors are not supported
                 };
 
                 let packet = self.craft_packet(id, seq, *reflector);
-                socket.send_to(addr, packet)?;
+                // A failed send (e.g. network unreachable while the WAN is down) is
+                // transient and must not take the whole daemon down.
+                if let Err(e) = socket.send_to(addr, packet) {
+                    debug!("Failed to send ping to {}: {}", addr, e);
+                }
                 thread::sleep(sleep_duration);
             }
 

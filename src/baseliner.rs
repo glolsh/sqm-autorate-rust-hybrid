@@ -41,8 +41,15 @@ impl Baseliner {
         let slow_factor = ewma_factor(self.config.tick_interval, 135.0);
         let fast_factor = ewma_factor(self.config.tick_interval, 0.4);
 
+        // Echo (RTT/2) and timestamp (true OWD incl. clock offset) samples are not
+        // comparable, so the baseline must be restarted when a reflector switches mode.
+        let mut last_mode: HashMap<IpAddr, bool> = HashMap::new();
+
         loop {
             let time_data = self.stats_receiver.recv()?;
+            let mode_changed = last_mode
+                .insert(time_data.reflector, time_data.echo_based)
+                .is_some_and(|prev| prev != time_data.echo_based);
 
             let mut owd_baseline_map = self.owd_baseline.lock_anyhow()?;
             let mut owd_recent_map = self.owd_recent.lock_anyhow()?;
@@ -67,9 +74,10 @@ impl Baseliner {
                 .entry(time_data.reflector)
                 .or_insert(owd_recent_new);
 
-            if time_data
-                .last_receive_time_s
-                .duration_since(owd_baseline.last_receive_time_s)
+            if mode_changed
+                || time_data
+                    .last_receive_time_s
+                    .duration_since(owd_baseline.last_receive_time_s)
                 .as_secs_f64()
                 > 30.0
                 || time_data
