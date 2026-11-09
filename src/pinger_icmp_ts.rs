@@ -9,9 +9,6 @@ use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-/// Consecutive unanswered timestamp requests before falling back to echo (~20 s at 0.5 s ticks)
-const FALLBACK_AFTER_FAILS: u32 = 40;
-
 pub struct PingerICMPTimestampListener {
     pub state: Arc<RwLock<HashMap<IpAddr, ReflectorState>>>,
 }
@@ -41,7 +38,7 @@ impl PingListener for PingerICMPTimestampListener {
 
                     // Stay in echo mode until a timestamp reply is seen (handled in type 14)
                     if let Ok(mut state_map) = self.state.write() {
-                        state_map.entry(reflector).or_default().consecutive_fails = 0;
+                        state_map.entry(reflector).or_default().on_echo_reply();
                     }
 
                     let time_sent = match payload.as_slice().try_into() {
@@ -90,9 +87,7 @@ impl PingListener for PingerICMPTimestampListener {
                     }
 
                     if let Ok(mut state_map) = self.state.write() {
-                        let st = state_map.entry(reflector).or_insert_with(ReflectorState::default);
-                        st.consecutive_fails = 0;
-                        st.current_mode = PingMode::Timestamp;
+                        state_map.entry(reflector).or_default().on_timestamp_reply();
                     }
 
                     let time_now = Time::new(ClockId::Realtime);
@@ -128,25 +123,13 @@ impl PingListener for PingerICMPTimestampListener {
 
 impl PingSender for PingerICMPTimestampSender {
     fn craft_packet(&mut self, id: u16, seq: u16, reflector: IpAddr) -> Icmpv4Packet {
-        let mut mode = PingMode::Timestamp;
-
-        if let Ok(mut state_map) = self.state.write() {
-            let st = state_map.entry(reflector).or_insert_with(ReflectorState::default);
-
-            st.consecutive_fails += 1;
-
-            if st.current_mode == PingMode::Timestamp && st.consecutive_fails >= FALLBACK_AFTER_FAILS {
-                st.current_mode = PingMode::Echo;
-                st.last_timestamp_attempt = Instant::now();
-            }
-
-            if st.current_mode == PingMode::Echo && st.last_timestamp_attempt.elapsed().as_secs() >= 3600 {
-                mode = PingMode::Timestamp;
-                st.last_timestamp_attempt = Instant::now();
-            } else {
-                mode = st.current_mode;
-            }
-        }
+        let mode = match self.state.write() {
+            Ok(mut state_map) => state_map
+                .entry(reflector)
+                .or_default()
+                .on_send(seq, Instant::now()),
+            Err(_) => PingMode::Timestamp,
+        };
 
         match mode {
             PingMode::Timestamp => {

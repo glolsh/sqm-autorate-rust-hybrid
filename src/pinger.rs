@@ -43,10 +43,21 @@ pub enum PingMode {
     Echo,
 }
 
+/// Consecutive unanswered requests before a reflector in timestamp mode falls back
+/// to echo (~20 s at 0.5 s ticks). Also used to recognise the end of an outage.
+const FALLBACK_AFTER_FAILS: u32 = 40;
+/// How often a reflector in echo mode is re-tested for timestamp support
+const TIMESTAMP_RETRY_SECS: u64 = 3600;
+/// Number of timestamp probes sent after an outage ends
+const RECOVERY_PROBES: u8 = 3;
+
+/// Per-reflector measurement mode state machine (timestamps with echo fallback)
 pub struct ReflectorState {
     pub current_mode: PingMode,
     pub consecutive_fails: u32,
     pub last_timestamp_attempt: Instant,
+    /// Timestamp probes still to be sent while in echo mode
+    pub timestamp_probes_left: u8,
 }
 
 impl Default for ReflectorState {
@@ -55,7 +66,52 @@ impl Default for ReflectorState {
             current_mode: PingMode::Timestamp,
             consecutive_fails: 0,
             last_timestamp_attempt: Instant::now(),
+            timestamp_probes_left: 0,
         }
+    }
+}
+
+impl ReflectorState {
+    /// Called for every request about to be sent; returns the request type to use.
+    pub fn on_send(&mut self, seq: u16, now: Instant) -> PingMode {
+        self.consecutive_fails = self.consecutive_fails.saturating_add(1);
+
+        if self.current_mode == PingMode::Timestamp {
+            if self.consecutive_fails < FALLBACK_AFTER_FAILS {
+                return PingMode::Timestamp;
+            }
+            self.current_mode = PingMode::Echo;
+            self.last_timestamp_attempt = now;
+        }
+
+        if now.duration_since(self.last_timestamp_attempt).as_secs() >= TIMESTAMP_RETRY_SECS {
+            self.last_timestamp_attempt = now;
+            return PingMode::Timestamp;
+        }
+
+        // Probe on every other request only, so echo samples keep flowing meanwhile
+        if self.timestamp_probes_left > 0 && seq % 2 == 0 {
+            self.timestamp_probes_left -= 1;
+            return PingMode::Timestamp;
+        }
+
+        PingMode::Echo
+    }
+
+    pub fn on_echo_reply(&mut self) {
+        // The first reply after a long silence means an outage just ended. The
+        // fallback to echo may have been caused by that outage rather than by the
+        // reflector filtering timestamps, so test timestamps again right away.
+        if self.consecutive_fails >= FALLBACK_AFTER_FAILS {
+            self.timestamp_probes_left = RECOVERY_PROBES;
+        }
+        self.consecutive_fails = 0;
+    }
+
+    pub fn on_timestamp_reply(&mut self) {
+        self.consecutive_fails = 0;
+        self.current_mode = PingMode::Timestamp;
+        self.timestamp_probes_left = 0;
     }
 }
 
@@ -181,4 +237,85 @@ pub trait PingSender {
     }
 
     fn craft_packet(&mut self, id: u16, seq: u16, reflector: IpAddr) -> icmp_socket::packet::Icmpv4Packet;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Send `n` requests without any reply; returns the modes used
+    fn send_n(st: &mut ReflectorState, n: u32, now: Instant) -> Vec<PingMode> {
+        (0..n).map(|i| st.on_send(i as u16, now)).collect()
+    }
+
+    #[test]
+    fn stays_in_timestamp_mode_while_replies_arrive() {
+        let mut st = ReflectorState::default();
+        let now = Instant::now();
+        for seq in 0..200 {
+            assert_eq!(st.on_send(seq, now), PingMode::Timestamp);
+            st.on_timestamp_reply();
+        }
+    }
+
+    #[test]
+    fn falls_back_to_echo_after_silence() {
+        let mut st = ReflectorState::default();
+        let now = Instant::now();
+        let modes = send_n(&mut st, FALLBACK_AFTER_FAILS, now);
+        assert!(modes[..modes.len() - 1].iter().all(|m| *m == PingMode::Timestamp));
+        assert_eq!(*modes.last().unwrap(), PingMode::Echo);
+        assert_eq!(st.current_mode, PingMode::Echo);
+    }
+
+    #[test]
+    fn probes_timestamps_after_outage_and_recovers() {
+        let mut st = ReflectorState::default();
+        let now = Instant::now();
+        send_n(&mut st, FALLBACK_AFTER_FAILS + 10, now);
+
+        // link is back: first echo reply schedules probes
+        st.on_echo_reply();
+        assert_eq!(st.timestamp_probes_left, RECOVERY_PROBES);
+
+        // probes go out on even sequence numbers only
+        assert_eq!(st.on_send(1, now), PingMode::Echo);
+        assert_eq!(st.on_send(2, now), PingMode::Timestamp);
+
+        st.on_timestamp_reply();
+        assert_eq!(st.current_mode, PingMode::Timestamp);
+        assert_eq!(st.on_send(3, now), PingMode::Timestamp);
+    }
+
+    #[test]
+    fn filtering_reflector_settles_in_echo_mode() {
+        let mut st = ReflectorState::default();
+        let now = Instant::now();
+        send_n(&mut st, FALLBACK_AFTER_FAILS, now);
+
+        // echo works, timestamps never do
+        let mut probes = 0;
+        for seq in 0..100u16 {
+            st.on_echo_reply();
+            if st.on_send(seq, now) == PingMode::Timestamp {
+                probes += 1;
+            }
+        }
+        assert_eq!(probes, RECOVERY_PROBES as u32);
+        assert_eq!(st.current_mode, PingMode::Echo);
+    }
+
+    #[test]
+    fn retries_timestamps_periodically() {
+        let mut st = ReflectorState::default();
+        let now = Instant::now();
+        send_n(&mut st, FALLBACK_AFTER_FAILS, now);
+        st.on_echo_reply();
+        st.timestamp_probes_left = 0;
+
+        assert_eq!(st.on_send(1, now), PingMode::Echo);
+        let later = now + Duration::from_secs(TIMESTAMP_RETRY_SECS);
+        assert_eq!(st.on_send(3, later), PingMode::Timestamp);
+        assert_eq!(st.on_send(5, later), PingMode::Echo);
+    }
 }
