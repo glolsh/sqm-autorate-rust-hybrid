@@ -165,7 +165,9 @@ impl Ratecontroller {
 
                     // Protect against idle lag spikes: never calculate the drop from a base lower than 50% of the current limit
                     let effective_baseline = state.utilisation.max(state.current_rate * 0.5);
-                    state.next_rate = effective_baseline * self.config.decrease_multiplier;
+                    // A congestion event must never raise the limit (utilisation can briefly exceed it)
+                    state.next_rate = (effective_baseline * self.config.decrease_multiplier)
+                        .min(state.current_rate);
 
                     state.congestion_ceiling = state.utilisation;
                     state.cooldown_until = Some(now_t + Duration::from_secs_f64(self.config.cooldown_secs));
@@ -278,6 +280,20 @@ impl Ratecontroller {
         })
     }
 
+    /// Push `next_rate` to the qdiscs where it differs from `current_rate`.
+    /// Netlink failures are logged and retried on the next cycle instead of being fatal.
+    fn apply_rates(&mut self) {
+        for (name, state) in [("download", &mut self.state_dl), ("upload", &mut self.state_ul)] {
+            if state.next_rate == state.current_rate {
+                continue;
+            }
+            match Netlink::set_qdisc_rate(state.qdisc, state.next_rate as u64) {
+                Ok(()) => state.current_rate = state.next_rate,
+                Err(e) => warn!("Failed to set {} rate to {} kbit/s: {}", name, state.next_rate, e),
+            }
+        }
+    }
+
     pub fn run(&mut self) -> anyhow::Result<()> {
         let sleep_time = Duration::from_secs_f64(self.config.min_change_interval);
 
@@ -286,6 +302,14 @@ impl Ratecontroller {
         // set qdisc rates to 95% of base rate to avoid load traps
         self.state_dl.current_rate = self.config.download_base_kbits * 0.95;
         self.state_ul.current_rate = self.config.upload_base_kbits * 0.95;
+
+        // never start above the configured hard ceiling
+        if self.config.download_max_kbits > 0.0 {
+            self.state_dl.current_rate = self.state_dl.current_rate.min(self.config.download_max_kbits);
+        }
+        if self.config.upload_max_kbits > 0.0 {
+            self.state_ul.current_rate = self.state_ul.current_rate.min(self.config.upload_max_kbits);
+        }
 
         Netlink::set_qdisc_rate(
             self.state_dl.qdisc,
@@ -296,6 +320,10 @@ impl Ratecontroller {
             self.state_ul.current_rate.round() as u64,
         )?;
 
+        const STATS_HEADER: &str = "times,timens,rxload,txload,deltadelaydown,deltadelayup,dlrate,uprate\n";
+        // /tmp is RAM-backed on OpenWrt, so keep the stats file bounded
+        const STATS_MAX_BYTES: u64 = 1024 * 1024;
+        let mut stats_bytes: u64 = 0;
         let mut stats_fd: Option<File> = None;
         let mut stats_fd_inner: File;
 
@@ -306,10 +334,9 @@ impl Ratecontroller {
                 .truncate(true)
                 .open(self.config.stats_file.as_str())?;
 
-            stats_fd_inner.write_all(
-                "times,timens,rxload,txload,deltadelaydown,deltadelayup,dlrate,uprate\n".as_bytes(),
-            )?;
+            stats_fd_inner.write_all(STATS_HEADER.as_bytes())?;
             stats_fd_inner.flush()?;
+            stats_bytes = STATS_HEADER.len() as u64;
 
             stats_fd = Some(stats_fd_inner);
         }
@@ -322,13 +349,17 @@ impl Ratecontroller {
                 // if it's been long enough, and the stats indicate needing to change speeds
                 // change speeds here
 
-                (self.state_dl.current_bytes, self.state_ul.current_bytes) =
-                    get_interface_stats(&self.config, self.down_direction, self.up_direction)?;
-                if self.state_dl.current_bytes == -1 || self.state_ul.current_bytes == -1 {
-                    warn!(
-                        "One or both Netlink stats could not be read. Skipping rate control algorithm"
-                    );
-                    continue;
+                // The interface can briefly disappear (PPPoE reconnect, ifb recreation);
+                // that is not a reason to terminate the daemon.
+                match get_interface_stats(&self.config, self.down_direction, self.up_direction) {
+                    Ok((rx, tx)) => {
+                        self.state_dl.current_bytes = rx;
+                        self.state_ul.current_bytes = tx;
+                    }
+                    Err(e) => {
+                        warn!("Interface stats could not be read ({}), skipping this cycle", e);
+                        continue;
+                    }
                 }
 
                 self.update_deltas()?;
@@ -349,20 +380,10 @@ impl Ratecontroller {
                         warn!("No reflector data available, dropping to minimum rates");
                         self.is_offline = true;
                     }
+                    // No-op once the rates are applied; retried every cycle if netlink failed
                     self.state_dl.next_rate = self.config.download_min_kbits;
                     self.state_ul.next_rate = self.config.upload_min_kbits;
-
-                    Netlink::set_qdisc_rate(
-                        self.state_dl.qdisc,
-                        self.state_dl.next_rate as u64,
-                    )?;
-                    Netlink::set_qdisc_rate(
-                        self.state_ul.qdisc,
-                        self.state_ul.next_rate as u64,
-                    )?;
-
-                    self.state_dl.current_rate = self.state_dl.next_rate;
-                    self.state_ul.current_rate = self.state_ul.next_rate;
+                    self.apply_rates();
                     continue;
                 }
 
@@ -377,6 +398,7 @@ impl Ratecontroller {
                 let reflectors = self.reflectors_lock.read_anyhow()?;
                 let targets: Vec<String> = reflectors.iter().map(|ip| ip.to_string()).collect();
                 let target_str = targets.join(", ");
+                drop(reflectors);
 
                 use std::io::Write;
 
@@ -434,16 +456,7 @@ impl Ratecontroller {
                     );
                 }
 
-                if self.state_dl.next_rate != self.state_dl.current_rate {
-                    Netlink::set_qdisc_rate(self.state_dl.qdisc, self.state_dl.next_rate as u64)?;
-                }
-
-                if self.state_ul.next_rate != self.state_ul.current_rate {
-                    Netlink::set_qdisc_rate(self.state_ul.qdisc, self.state_ul.next_rate as u64)?;
-                }
-
-                self.state_dl.current_rate = self.state_dl.next_rate;
-                self.state_ul.current_rate = self.state_ul.next_rate;
+                self.apply_rates();
 
                 let stats_time = Time::new(ClockId::Realtime);
                 debug!(
@@ -459,21 +472,28 @@ impl Ratecontroller {
                 );
 
                 if let Some(ref mut fd) = stats_fd {
-                    if let Err(e) = fd.write_all(
-                        format!(
-                            "{},{},{},{},{},{},{},{}\n",
-                            stats_time.secs(),
-                            stats_time.nsecs(),
-                            self.state_dl.load,
-                            self.state_ul.load,
-                            self.state_dl.delta_stat,
-                            self.state_ul.delta_stat,
-                            self.state_dl.current_rate as u64,
-                            self.state_ul.current_rate as u64
-                        )
-                        .as_bytes(),
-                    ) {
-                        warn!("Failed to write statistics: {}", e);
+                    let line = format!(
+                        "{},{},{},{},{},{},{},{}\n",
+                        stats_time.secs(),
+                        stats_time.nsecs(),
+                        self.state_dl.load,
+                        self.state_ul.load,
+                        self.state_dl.delta_stat,
+                        self.state_ul.delta_stat,
+                        self.state_dl.current_rate as u64,
+                        self.state_ul.current_rate as u64
+                    );
+                    if stats_bytes + line.len() as u64 > STATS_MAX_BYTES {
+                        // Start over: truncate and rewind (the fd is not opened in append mode)
+                        use std::io::Seek;
+                        if fd.set_len(0).and_then(|_| fd.rewind()).is_ok() {
+                            let _ = fd.write_all(STATS_HEADER.as_bytes());
+                            stats_bytes = STATS_HEADER.len() as u64;
+                        }
+                    }
+                    match fd.write_all(line.as_bytes()) {
+                        Ok(()) => stats_bytes += line.len() as u64,
+                        Err(e) => warn!("Failed to write statistics: {}", e),
                     }
                 }
 

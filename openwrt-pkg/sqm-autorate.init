@@ -31,6 +31,14 @@ start_service() {
     config_get decrease_multiplier main decrease_multiplier '0.85'
     config_get cooldown_secs main cooldown_secs '10.0'
 
+    config_get tick_interval main tick_interval '0.5'
+    config_get min_change_interval main min_change_interval '0.5'
+    config_get num_reflectors main num_reflectors '5'
+    config_get peer_reselection_time main peer_reselection_time '15'
+    config_get measurement_type main measurement_type 'icmp-timestamps'
+    config_get stats_file main stats_file '/tmp/sqm-autorate.csv'
+    config_get suppress_statistics main suppress_statistics '0'
+
     procd_open_instance
     procd_set_param command $PROG
     
@@ -52,7 +60,14 @@ start_service() {
         SQMA_REFLECTORS="$reflectors" \
         SQMA_INCREASE_STEP_KBITS="$increase_step_kbits" \
         SQMA_DECREASE_MULTIPLIER="$decrease_multiplier" \
-        SQMA_COOLDOWN_SECS="$cooldown_secs"
+        SQMA_COOLDOWN_SECS="$cooldown_secs" \
+        SQMA_TICK_INTERVAL="$tick_interval" \
+        SQMA_MIN_CHANGE_INTERVAL="$min_change_interval" \
+        SQMA_NUM_REFLECTORS="$num_reflectors" \
+        SQMA_PEER_RESELECTION_TIME="$peer_reselection_time" \
+        SQMA_MEASUREMENT_TYPE="$measurement_type" \
+        SQMA_STATS_FILE="$stats_file" \
+        SQMA_SUPPRESS_STATISTICS="$suppress_statistics"
 
     procd_set_param respawn
     procd_set_param stdout 1

@@ -15,10 +15,10 @@ While the original tool was designed for fluctuating LTE/DOCSIS links, this **Hy
 * **Robust Reflector Logic**: Dynamic thresholding for reflector health. The system remains operational and quiet as long as at least one reflector is reachable, avoiding log spam in small-pool configurations.
 * **Concurrent Architecture**: Dedicated threads for packet sending, receiving, baselining, and rate-control for sub-millisecond responsiveness.
 * **Deep OpenWrt Integration**: 
-    * Full UCI support via `/etc/config/sqm-autorate`.
+    * UCI support via the init script and `/etc/config/sqm-autorate`.
     * Robust boolean parsing (supports `true/false`, `1/0`, `on/off`).
     * Environment-based logging configuration.
-* **Minimal Dependencies**: Relies on a small set of high-performance Rust crates (`anyhow`, `neli`, `rustix`), requiring no external shell scripts or heavy libraries.
+* **Minimal Dependencies**: Relies on a small set of high-performance Rust crates (`anyhow`, `netlink-bindings`, `rustix`), requiring no external shell scripts or heavy libraries.
 
 ## Configuration Options (UCI)
 
@@ -28,13 +28,17 @@ While the original tool was designed for fluctuating LTE/DOCSIS links, this **Hy
 | `interface` | Interface to manage (e.g., `eth1`) | (required) |
 | `download_base_kbits` | Starting download speed | `750000` |
 | `download_max_kbits` | **Hard ceiling** for download probing (0 = Unlimited) | `0` |
-| `download_min_percent`| Minimum speed during congestion | `50` |
+| `download_min_kbits` | Minimum download speed during congestion | `375000` |
+| `upload_base_kbits` / `upload_max_kbits` / `upload_min_kbits` | Same as above for upload | see `sqm-autorate.config` |
+| `measurement_type` | `icmp-timestamps` (with per-reflector echo fallback) or `icmp` | `icmp-timestamps` |
+| `tick_interval`, `min_change_interval`, `num_reflectors`, `peer_reselection_time` | Measurement/control timing and reflector pool tuning | `0.5`, `0.5`, `5`, `15` |
+| `suppress_statistics`, `stats_file` | CSV statistics in `/tmp` (capped at 1 MiB) | `0`, `/tmp/sqm-autorate.csv` |
 
 ## Installation
 
 ### 1. Native Rust build
 
-1. Ensure you have the Rust toolchain (1.70+), Cargo, and `libnl` headers installed.
+1. Ensure you have the Rust toolchain (1.85+, edition 2024), Cargo, and `libnl` headers installed.
 2. Clone and build:
 
    ```bash
