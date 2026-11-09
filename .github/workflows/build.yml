@@ -23,10 +23,10 @@ jobs:
             pkg_ext: "ipk"
             sdk_url: "https://downloads.openwrt.org/releases/24.10.0/targets/rockchip/armv8/openwrt-sdk-24.10.0-rockchip-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
           
-          - owrt_ver: "25.12.2"
+          - owrt_ver: "25.12.6"
             pkg_ext: "apk"
-            sdk_url: "https://downloads.openwrt.org/releases/25.12.2/targets/rockchip/armv8/openwrt-sdk-25.12.2-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-
+            sdk_url: "https://downloads.openwrt.org/releases/25.12.6/targets/rockchip/armv8/openwrt-sdk-25.12.6-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+            
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
