@@ -49,6 +49,7 @@ impl ReflectorSelector {
 
             let mut next_peers: Vec<IpAddr> = Vec::new();
             let mut reflectors_peers = self.reflector_peers_lock.write_anyhow()?;
+            let previous_peers = reflectors_peers.clone();
 
             // Include all current peers
             for reflector in reflectors_peers.iter() {
@@ -162,8 +163,10 @@ impl ReflectorSelector {
             }
 
             if new_peers.is_empty() {
-                // Keep the previous peers so we can recover as soon as the link is back
-                warn!("No usable reflectors found, keeping current peers");
+                // Go back to the peers we had before adding candidates, so we recover as
+                // soon as the link is back without pinging the whole candidate set meanwhile
+                warn!("No usable reflectors found, keeping previous peers");
+                *reflectors_peers = previous_peers;
             } else {
                 *reflectors_peers = new_peers;
             }

@@ -303,6 +303,14 @@ impl Ratecontroller {
         self.state_dl.current_rate = self.config.download_base_kbits * 0.95;
         self.state_ul.current_rate = self.config.upload_base_kbits * 0.95;
 
+        // never start above the configured hard ceiling
+        if self.config.download_max_kbits > 0.0 {
+            self.state_dl.current_rate = self.state_dl.current_rate.min(self.config.download_max_kbits);
+        }
+        if self.config.upload_max_kbits > 0.0 {
+            self.state_ul.current_rate = self.state_ul.current_rate.min(self.config.upload_max_kbits);
+        }
+
         Netlink::set_qdisc_rate(
             self.state_dl.qdisc,
             self.state_dl.current_rate.round() as u64,
@@ -371,11 +379,11 @@ impl Ratecontroller {
                     if !self.is_offline {
                         warn!("No reflector data available, dropping to minimum rates");
                         self.is_offline = true;
-
-                        self.state_dl.next_rate = self.config.download_min_kbits;
-                        self.state_ul.next_rate = self.config.upload_min_kbits;
-                        self.apply_rates();
                     }
+                    // No-op once the rates are applied; retried every cycle if netlink failed
+                    self.state_dl.next_rate = self.config.download_min_kbits;
+                    self.state_ul.next_rate = self.config.upload_min_kbits;
+                    self.apply_rates();
                     continue;
                 }
 
@@ -476,7 +484,7 @@ impl Ratecontroller {
                         self.state_ul.current_rate as u64
                     );
                     if stats_bytes + line.len() as u64 > STATS_MAX_BYTES {
-                        // Start over (the file is truncated; O_APPEND-less fd needs a rewind)
+                        // Start over: truncate and rewind (the fd is not opened in append mode)
                         use std::io::Seek;
                         if fd.set_len(0).and_then(|_| fd.rewind()).is_ok() {
                             let _ = fd.write_all(STATS_HEADER.as_bytes());

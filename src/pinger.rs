@@ -79,17 +79,25 @@ pub trait PingListener {
         stats_sender: Sender<PingReply>,
     ) -> anyhow::Result<()> {
         let socket = &mut open_socket(type_)?;
+        let mut consecutive_errors: u32 = 0;
 
         loop {
             let (pkt, sender) = match socket.rcv_from() {
                 Ok(val) => val,
                 Err(e) => {
-                    // Avoid spinning at 100% CPU if the socket is persistently failing
-                    debug!("ICMP receive error: {}", e);
-                    thread::sleep(Duration::from_millis(10));
+                    // A single error is usually just an unrelated ICMP packet that failed
+                    // to parse; sleeping then would delay (and thus distort) the next reply.
+                    // Only back off when the socket is persistently failing, to avoid
+                    // spinning at 100% CPU.
+                    consecutive_errors += 1;
+                    if consecutive_errors >= 100 {
+                        debug!("ICMP receive keeps failing: {}", e);
+                        thread::sleep(Duration::from_millis(100));
+                    }
                     continue;
                 }
             };
+            consecutive_errors = 0;
 
             let addr: IpAddr = match sender.as_socket() {
                 Some(sock) => sock.ip(),
